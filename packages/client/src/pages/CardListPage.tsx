@@ -3,9 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-import { api } from '@/api/client';
+import { api, getErrorMessage } from '@/api/client';
 import type { Card } from '@/api/types';
 import { FilterBar } from '@/components/board/FilterBar';
+import { ErrorState } from '@/components/ErrorState';
+import { CardListPageSkeleton } from '@/components/PageSkeletons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -137,15 +139,12 @@ export function CardListPage() {
   const [sortColumn, setSortColumn] = useState<SortColumn>('updated_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
-  const {
-    data: cards = [],
-    isLoading,
-    isError,
-  } = useQuery({
+  const cardsQuery = useQuery({
     queryKey: ['cards'],
     queryFn: () => api.cards.list(),
   });
 
+  const cards = cardsQuery.data ?? [];
   const filteredCards = useMemo(() => applyFilters(cards, filters), [cards, filters]);
   const sortedCards = useMemo(
     () => [...filteredCards].sort((left, right) => compareCards(left, right, sortColumn, sortDirection)),
@@ -162,6 +161,23 @@ export function CardListPage() {
     setSortDirection(column === 'updated_at' ? 'desc' : 'asc');
   }
 
+  if (cardsQuery.isPending) {
+    return <CardListPageSkeleton />;
+  }
+
+  if (cardsQuery.isError) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <ErrorState
+          message={getErrorMessage(cardsQuery.error, 'Failed to load cards.')}
+          onRetry={() => {
+            void cardsQuery.refetch();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col gap-4">
       <div>
@@ -170,12 +186,6 @@ export function CardListPage() {
       </div>
 
       <FilterBar cards={cards} />
-
-      {isError ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Unable to load cards right now.
-        </div>
-      ) : null}
 
       <div className="rounded-xl border bg-card shadow-sm">
         <Table>
@@ -282,7 +292,7 @@ export function CardListPage() {
             ) : (
               <TableRow>
                 <TableCell className="py-10 text-center text-muted-foreground" colSpan={7}>
-                  {isLoading ? 'Loading cards...' : 'No cards found'}
+                  No cards found
                 </TableCell>
               </TableRow>
             )}

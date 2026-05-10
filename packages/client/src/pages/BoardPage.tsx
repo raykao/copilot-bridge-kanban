@@ -3,9 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 
 import type { Card } from '@/api/types';
-import { api } from '@/api/client';
+import { api, getErrorMessage } from '@/api/client';
 import { BoardView } from '@/components/board/BoardView';
 import { CreateCardModal } from '@/components/board/CreateCardModal';
+import { ErrorState } from '@/components/ErrorState';
+import { BoardPageSkeleton } from '@/components/PageSkeletons';
 import { FilterBar } from '@/components/board/FilterBar';
 import { Button } from '@/components/ui/button';
 import { applyFilters, useFilterStore } from '@/stores/filters';
@@ -20,25 +22,19 @@ export function BoardPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const filters = useFilterStore();
 
-  const {
-    data: agents = [],
-    isLoading: agentsLoading,
-    isError: agentsError,
-  } = useQuery({
+  const agentsQuery = useQuery({
     queryKey: ['agents'],
     queryFn: () => api.agents.list(),
     staleTime: 60_000,
   });
 
-  const {
-    data: cards = [],
-    isLoading: cardsLoading,
-    isError: cardsError,
-  } = useQuery({
+  const cardsQuery = useQuery({
     queryKey: ['cards'],
     queryFn: () => api.cards.list(),
   });
 
+  const agents = agentsQuery.data ?? [];
+  const cards = cardsQuery.data ?? [];
   const filteredCards = useMemo(() => applyFilters(cards, filters), [cards, filters]);
 
   const columns = useMemo(
@@ -57,8 +53,22 @@ export function BoardPage() {
     [agents, filteredCards],
   );
 
-  const isLoading = agentsLoading || cardsLoading;
-  const hasError = agentsError || cardsError;
+  if (agentsQuery.isPending || cardsQuery.isPending) {
+    return <BoardPageSkeleton columns={4} />;
+  }
+
+  if (agentsQuery.isError || cardsQuery.isError) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <ErrorState
+          message={getErrorMessage(agentsQuery.error ?? cardsQuery.error, 'Failed to load the board.')}
+          onRetry={() => {
+            void Promise.all([agentsQuery.refetch(), cardsQuery.refetch()]);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -77,14 +87,8 @@ export function BoardPage() {
 
         <FilterBar cards={cards} />
 
-        {hasError ? (
-          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            Unable to load the board right now.
-          </div>
-        ) : null}
-
         <div className="min-h-0 flex-1">
-          <BoardView columns={columns} isLoading={isLoading} mode="agent" />
+          <BoardView columns={columns} mode="agent" />
         </div>
       </div>
 

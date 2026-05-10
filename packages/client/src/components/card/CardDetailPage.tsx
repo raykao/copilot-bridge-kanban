@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 import { api } from "@/api/client";
 import type { Agent, Card, CardComment } from "@/api/types";
+import { LiveUpdatesBanner } from "@/components/LiveUpdatesBanner";
 import { CheckpointList } from "@/components/card/CheckpointList";
 import { CommentThread } from "@/components/card/CommentThread";
 import { LabelEditor } from "@/components/card/LabelEditor";
@@ -271,6 +272,10 @@ export function CardDetailPage({
             <Separator />
 
             <section className="space-y-3">
+              <LiveUpdatesBanner
+                onRetry={streamingState.retry}
+                status={streamingState.connectionStatus}
+              />
               <CommentThread cardId={card.id} comments={comments} />
             </section>
 
