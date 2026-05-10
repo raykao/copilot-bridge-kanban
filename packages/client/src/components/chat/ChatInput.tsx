@@ -55,9 +55,9 @@ export function ChatInput({
   };
 
   return (
-    <div className="flex items-end gap-3">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
       <Textarea
-        className="max-h-60 min-h-20 resize-none"
+        className="max-h-60 min-h-24 w-full resize-none text-sm sm:min-h-20"
         disabled={disabled}
         onChange={(event) => setContent(event.target.value)}
         onKeyDown={handleKeyDown}
@@ -66,7 +66,12 @@ export function ChatInput({
         rows={1}
         value={content}
       />
-      <Button disabled={disabled || !content.trim()} onClick={handleSend} type="button">
+      <Button
+        className="min-h-11 w-full px-4 sm:w-auto"
+        disabled={disabled || !content.trim()}
+        onClick={handleSend}
+        type="button"
+      >
         <SendHorizontal />
         Send
       </Button>

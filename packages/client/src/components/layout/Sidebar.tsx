@@ -51,12 +51,12 @@ function NavItem({
   onNavigate?: () => void;
 }) {
   return (
-    <Link
-      className={cn(
-        'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-        active
-          ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-          : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+      <Link
+        className={cn(
+          'flex min-h-11 items-center gap-3 rounded-lg px-3 py-3 text-sm transition-colors',
+          active
+            ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+            : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
       )}
       onClick={onNavigate}
       to={href}
@@ -164,7 +164,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <Tooltip>
           <TooltipTrigger
             className="w-full"
-            render={<Button className="w-full justify-start gap-3" variant="ghost" />}
+            render={<Button className="min-h-11 w-full justify-start gap-3" variant="ghost" />}
             type="button"
             onClick={() => {
               void handleLogout();

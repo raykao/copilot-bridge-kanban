@@ -123,7 +123,7 @@ function SortableHeader({
 
   return (
     <Button
-      className="-ml-3 h-auto px-3 py-1.5 text-foreground hover:text-foreground"
+      className="-ml-3 h-auto min-h-11 px-3 py-1.5 text-foreground hover:text-foreground"
       onClick={() => onSort(column)}
       type="button"
       variant="ghost"
@@ -179,16 +179,16 @@ export function CardListPage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex h-full min-w-0 flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">All Cards</h1>
+        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">All Cards</h1>
         <p className="text-sm text-muted-foreground">A sortable table view of every card in the workspace.</p>
       </div>
 
       <FilterBar cards={cards} />
 
       <div className="rounded-xl border bg-card shadow-sm">
-        <Table>
+        <Table className="min-w-[680px]">
           <TableHeader>
             <TableRow>
               <TableHead>
@@ -227,8 +227,8 @@ export function CardListPage() {
                   sortDirection={sortDirection}
                 />
               </TableHead>
-              <TableHead>Labels</TableHead>
-              <TableHead>
+              <TableHead className="hidden md:table-cell">Labels</TableHead>
+              <TableHead className="hidden md:table-cell">
                 <SortableHeader
                   column="created_at"
                   label="Created"
@@ -254,7 +254,7 @@ export function CardListPage() {
                 <TableRow key={card.id}>
                   <TableCell className="max-w-80 whitespace-normal">
                     <Link
-                      className="block truncate font-medium text-foreground hover:text-primary hover:underline"
+                      className="block truncate break-words font-medium text-foreground hover:text-primary hover:underline"
                       title={card.title}
                       to={`/cards/${card.id}`}
                     >
@@ -272,7 +272,7 @@ export function CardListPage() {
                       {formatStatus(card.status)}
                     </Badge>
                   </TableCell>
-                  <TableCell className="max-w-72 whitespace-normal">
+                  <TableCell className="hidden max-w-72 whitespace-normal md:table-cell">
                     {card.labels.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
                         {card.labels.map((label) => (
@@ -285,7 +285,7 @@ export function CardListPage() {
                       <span className="text-muted-foreground">-</span>
                     )}
                   </TableCell>
-                  <TableCell>{formatTimestamp(card.created_at)}</TableCell>
+                  <TableCell className="hidden md:table-cell">{formatTimestamp(card.created_at)}</TableCell>
                   <TableCell>{formatTimestamp(card.updated_at)}</TableCell>
                 </TableRow>
               ))

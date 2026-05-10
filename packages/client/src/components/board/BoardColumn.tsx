@@ -19,7 +19,10 @@ export function BoardColumn({ columnId, title, cards, count = cards.length }: Bo
 
   return (
     <div
-      className={cn('flex h-full w-72 shrink-0 flex-col rounded-xl border bg-muted/30 transition-colors', isOver && 'bg-accent/50')}
+      className={cn(
+        'flex h-full min-w-[280px] w-[280px] shrink-0 snap-start flex-col overflow-hidden rounded-xl border bg-muted/30 transition-colors sm:w-72 md:snap-none',
+        isOver && 'bg-accent/50',
+      )}
       ref={setNodeRef}
     >
       <div className="border-b px-4 py-3">
@@ -31,8 +34,8 @@ export function BoardColumn({ columnId, title, cards, count = cards.length }: Bo
         </div>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-3 p-3">
+      <ScrollArea className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-w-0 space-y-3 p-3">
           {cards.length > 0 ? (
             cards.map((card) => <CardPreview card={card} key={card.id} />)
           ) : (

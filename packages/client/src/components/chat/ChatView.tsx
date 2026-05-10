@@ -184,33 +184,35 @@ export function ChatView({ agentName }: ChatViewProps) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Chat with {agentName}</h1>
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Chat with {agentName}</h1>
           <p className="text-sm text-muted-foreground">
             Start a conversation, then promote it into a work card when it becomes actionable.
           </p>
         </div>
 
-        <CreateCardFromChat agentName={agentName} chatHistory={sortedChatHistory} />
+        <div className="w-full sm:w-auto [&>[data-slot=button]]:min-h-11 [&>[data-slot=button]]:w-full [&>[data-slot=button]]:sm:w-auto">
+          <CreateCardFromChat agentName={agentName} chatHistory={sortedChatHistory} />
+        </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
-        <div className="flex items-center gap-3 border-b px-4 py-3">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className="flex items-center gap-3 border-b px-3 py-3 sm:px-4">
           <div className="flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground">
             <Bot className="size-4" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="font-medium">{agentName}</div>
-            <div className="text-sm text-muted-foreground">
+            <div className="truncate text-sm text-muted-foreground">
               {activeCardId ? 'Connected to active chat card' : 'Ready for your first message'}
             </div>
           </div>
         </div>
 
         <ScrollArea className="min-h-0 flex-1">
-          <div className="space-y-4 px-4 py-4">
+          <div className="space-y-4 px-3 py-4 sm:px-4">
             <LiveUpdatesBanner
               onRetry={streamingState.retry}
               status={streamingState.connectionStatus}
@@ -241,7 +243,7 @@ export function ChatView({ agentName }: ChatViewProps) {
           </div>
         </ScrollArea>
 
-        <div className="border-t px-4 py-4">
+        <div className="border-t px-3 py-4 sm:px-4">
           <ChatInput
             disabled={isBusy}
             onSend={(content) => {
@@ -249,7 +251,7 @@ export function ChatView({ agentName }: ChatViewProps) {
             }}
             placeholder={`Message ${agentName}...`}
           />
-          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <div className="mt-2 flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <span>Press Enter to send. Shift+Enter adds a new line.</span>
             {submitError ? <span className="text-destructive">{submitError}</span> : null}
           </div>

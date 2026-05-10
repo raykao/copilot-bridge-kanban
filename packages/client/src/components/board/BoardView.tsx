@@ -106,7 +106,7 @@ function applyOptimisticPatch(
 
 function BoardSkeletonColumn({ title }: { title: string }) {
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col rounded-xl border bg-muted/30">
+    <div className="flex h-full min-w-[280px] w-[280px] shrink-0 snap-start flex-col rounded-xl border bg-muted/30 sm:w-72 md:snap-none">
       <div className="border-b px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div className="h-4 w-24 animate-pulse rounded bg-muted" />
@@ -218,7 +218,7 @@ export function BoardView({ columns, isLoading = false, mode }: BoardViewProps) 
   }
 
   return (
-    <div className="h-full">
+    <div className="h-full min-w-0">
       <DndContext
         collisionDetection={closestCenter}
         onDragCancel={() => setActiveCard(null)}
@@ -226,7 +226,7 @@ export function BoardView({ columns, isLoading = false, mode }: BoardViewProps) 
         onDragStart={handleDragStart}
         sensors={sensors}
       >
-        <div className="flex h-full gap-4 overflow-x-auto pb-2">
+        <div className="flex h-full min-w-0 snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain pb-2 md:snap-none">
           {isLoading
             ? skeletonColumns.map((column) => <BoardSkeletonColumn key={column.id} title={column.title} />)
             : columns.map((column) => (
