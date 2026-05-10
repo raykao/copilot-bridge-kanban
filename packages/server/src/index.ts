@@ -1,5 +1,6 @@
 import { loadConfig } from './config.js';
 import { createDatabase, initializeSchema } from './db.js';
+import { registerAuthRoutes, registerSessionMiddleware } from './auth.js';
 import { createServer } from './server.js';
 
 async function main(): Promise<void> {
@@ -8,6 +9,8 @@ async function main(): Promise<void> {
   initializeSchema(db);
 
   const server = await createServer(config);
+  registerSessionMiddleware(server, db);
+  registerAuthRoutes(server, db);
 
   await server.listen({ host: '0.0.0.0', port: config.port });
   console.log(`Kanban UI server listening on port ${config.port}`);
