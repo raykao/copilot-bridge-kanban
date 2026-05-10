@@ -1,9 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Plus } from 'lucide-react';
 
 import type { Card } from '@/api/types';
 import { api } from '@/api/client';
 import { BoardView } from '@/components/board/BoardView';
+import { CreateCardModal } from '@/components/board/CreateCardModal';
+import { Button } from '@/components/ui/button';
 
 const backlogStatuses = ['idea', 'refining', 'ready'] as const;
 
@@ -18,6 +21,8 @@ function sortCards(cards: Card[]): Card[] {
 }
 
 export function BacklogPage() {
+  const [createOpen, setCreateOpen] = useState(false);
+
   const {
     data: cards = [],
     isLoading,
@@ -38,21 +43,32 @@ export function BacklogPage() {
   );
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Backlog</h1>
-        <p className="text-sm text-muted-foreground">Unassigned cards grouped by readiness.</p>
-      </div>
+    <>
+      <div className="flex h-full flex-col gap-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Backlog</h1>
+            <p className="text-sm text-muted-foreground">Unassigned cards grouped by readiness.</p>
+          </div>
 
-      {isError ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Unable to load the backlog right now.
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus />
+            New Card
+          </Button>
         </div>
-      ) : null}
 
-      <div className="min-h-0 flex-1">
-        <BoardView columns={columns} isLoading={isLoading} />
+        {isError ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            Unable to load the backlog right now.
+          </div>
+        ) : null}
+
+        <div className="min-h-0 flex-1">
+          <BoardView columns={columns} isLoading={isLoading} />
+        </div>
       </div>
-    </div>
+
+      <CreateCardModal onOpenChange={setCreateOpen} open={createOpen} />
+    </>
   );
 }

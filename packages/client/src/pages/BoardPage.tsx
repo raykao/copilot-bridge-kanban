@@ -1,9 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Plus } from 'lucide-react';
 
 import type { Card } from '@/api/types';
 import { api } from '@/api/client';
 import { BoardView } from '@/components/board/BoardView';
+import { CreateCardModal } from '@/components/board/CreateCardModal';
+import { Button } from '@/components/ui/button';
 
 function sortCards(cards: Card[]): Card[] {
   return [...cards].sort(
@@ -12,6 +15,8 @@ function sortCards(cards: Card[]): Card[] {
 }
 
 export function BoardPage() {
+  const [createOpen, setCreateOpen] = useState(false);
+
   const {
     data: agents = [],
     isLoading: agentsLoading,
@@ -49,21 +54,32 @@ export function BoardPage() {
   const hasError = agentsError || cardsError;
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Agent board</h1>
-        <p className="text-sm text-muted-foreground">Active cards grouped by agent.</p>
-      </div>
+    <>
+      <div className="flex h-full flex-col gap-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Agent board</h1>
+            <p className="text-sm text-muted-foreground">Active cards grouped by agent.</p>
+          </div>
 
-      {hasError ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Unable to load the board right now.
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus />
+            New Card
+          </Button>
         </div>
-      ) : null}
 
-      <div className="min-h-0 flex-1">
-        <BoardView columns={columns} isLoading={isLoading} />
+        {hasError ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            Unable to load the board right now.
+          </div>
+        ) : null}
+
+        <div className="min-h-0 flex-1">
+          <BoardView columns={columns} isLoading={isLoading} />
+        </div>
       </div>
-    </div>
+
+      <CreateCardModal onOpenChange={setCreateOpen} open={createOpen} />
+    </>
   );
 }
