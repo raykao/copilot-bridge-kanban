@@ -20,7 +20,7 @@ export function registerBridgeProxy(app: FastifyInstance, config: AppConfig): vo
       headers['last-event-id'] = request.headers['last-event-id'] as string;
     }
 
-    const isSSE = request.headers.accept === 'text/event-stream';
+    const isSSE = request.headers.accept?.includes('text/event-stream') ?? false;
 
     try {
       const response = await fetch(bridgeUrl, {
@@ -66,7 +66,11 @@ export function registerBridgeProxy(app: FastifyInstance, config: AppConfig): vo
           reader.cancel().catch(() => {});
         });
 
-        await pump();
+        try {
+          await pump();
+        } catch {
+          reply.raw.destroy();
+        }
         return;
       }
 
