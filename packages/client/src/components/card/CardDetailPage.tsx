@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Archive, CircleSlash, PencilLine, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Archive, CircleSlash, PencilLine, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
-import { api } from '@/api/client';
-import type { Agent, Card, CardComment } from '@/api/types';
-import { CommentThread } from '@/components/card/CommentThread';
-import { LabelEditor } from '@/components/card/LabelEditor';
+import { api } from "@/api/client";
+import type { Agent, Card, CardComment } from "@/api/types";
+import { CommentThread } from "@/components/card/CommentThread";
+import { LabelEditor } from "@/components/card/LabelEditor";
+import { StreamingMessage } from "@/components/card/StreamingMessage";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,19 +17,26 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card as SurfaceCard,
   CardContent,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { useCardEvents } from "@/hooks/useCardEvents";
 
 interface CardDetailPageProps {
   card: Card;
@@ -36,43 +44,47 @@ interface CardDetailPageProps {
   comments: CardComment[];
 }
 
-type CardUpdatePatch = Partial<Pick<Card, 'title' | 'status'>> & {
+type CardUpdatePatch = Partial<Pick<Card, "title" | "status">> & {
   agent?: string | null;
 };
 
-const statusOptions: Card['status'][] = [
-  'idea',
-  'refining',
-  'ready',
-  'in_progress',
-  'paused',
-  'done',
-  'archived',
+const statusOptions: Card["status"][] = [
+  "idea",
+  "refining",
+  "ready",
+  "in_progress",
+  "paused",
+  "done",
+  "archived",
 ];
 
-const unassignedAgentValue = '__unassigned__';
+const unassignedAgentValue = "__unassigned__";
 
-function formatStatus(status: Card['status']): string {
+function formatStatus(status: Card["status"]): string {
   return status
-    .split('_')
+    .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+    .join(" ");
 }
 
 function formatTimestamp(timestamp: string | null): string {
   if (!timestamp) {
-    return '-';
+    return "-";
   }
 
   const value = new Date(timestamp);
   if (Number.isNaN(value.getTime())) {
-    return '-';
+    return "-";
   }
 
   return value.toLocaleString();
 }
 
-export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) {
+export function CardDetailPage({
+  card,
+  agents,
+  comments,
+}: CardDetailPageProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -80,9 +92,11 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
   const [actionError, setActionError] = useState<string | null>(null);
   const [abortOpen, setAbortOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const streamingState = useCardEvents({ cardId: card.id });
 
   const sortedAgents = useMemo(
-    () => [...agents].sort((left, right) => left.name.localeCompare(right.name)),
+    () =>
+      [...agents].sort((left, right) => left.name.localeCompare(right.name)),
     [agents],
   );
 
@@ -91,7 +105,7 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
   }, [card.title]);
 
   async function invalidateCards() {
-    await queryClient.invalidateQueries({ queryKey: ['cards'] });
+    await queryClient.invalidateQueries({ queryKey: ["cards"] });
   }
 
   const updateMutation = useMutation({
@@ -101,7 +115,7 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
       await invalidateCards();
     },
     onError: () => {
-      setActionError('Unable to update the card right now.');
+      setActionError("Unable to update the card right now.");
     },
   });
 
@@ -112,7 +126,7 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
       await invalidateCards();
     },
     onError: () => {
-      setActionError('Unable to archive the card right now.');
+      setActionError("Unable to archive the card right now.");
     },
   });
 
@@ -124,7 +138,7 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
       await invalidateCards();
     },
     onError: () => {
-      setActionError('Unable to abort the card right now.');
+      setActionError("Unable to abort the card right now.");
     },
   });
 
@@ -134,10 +148,10 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
       setDeleteOpen(false);
       setActionError(null);
       await invalidateCards();
-      navigate('/board');
+      navigate("/board");
     },
     onError: () => {
-      setActionError('Unable to delete the card right now.');
+      setActionError("Unable to delete the card right now.");
     },
   });
 
@@ -182,7 +196,7 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
       return;
     }
 
-    const nextStatus = value as Card['status'];
+    const nextStatus = value as Card["status"];
     if (nextStatus === card.status) {
       return;
     }
@@ -206,12 +220,12 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
                     }}
                     onChange={(event) => setTitleDraft(event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
+                      if (event.key === "Enter") {
                         event.preventDefault();
                         void commitTitle();
                       }
 
-                      if (event.key === 'Escape') {
+                      if (event.key === "Escape") {
                         setTitleDraft(card.title);
                         setIsEditingTitle(false);
                       }
@@ -224,11 +238,15 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
                     onClick={() => setIsEditingTitle(true)}
                     type="button"
                   >
-                    <CardTitle className="text-3xl font-semibold tracking-tight">{card.title}</CardTitle>
+                    <CardTitle className="text-3xl font-semibold tracking-tight">
+                      {card.title}
+                    </CardTitle>
                     <PencilLine className="size-4 text-muted-foreground" />
                   </button>
                 )}
-                <p className="text-sm text-muted-foreground">Card detail and editable metadata.</p>
+                <p className="text-sm text-muted-foreground">
+                  Card detail and editable metadata.
+                </p>
               </div>
               <Badge variant="outline">{formatStatus(card.status)}</Badge>
             </div>
@@ -238,10 +256,14 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
             <section className="space-y-3">
               <div>
                 <h2 className="text-lg font-medium">Description</h2>
-                <p className="text-sm text-muted-foreground">Plain text for now. Markdown rendering ships in f13.</p>
+                <p className="text-sm text-muted-foreground">
+                  Plain text for now. Markdown rendering ships in f13.
+                </p>
               </div>
               <div className="min-h-32 rounded-xl border bg-muted/20 p-4 text-sm whitespace-pre-wrap text-foreground">
-                {card.description?.trim() ? card.description : 'No description yet.'}
+                {card.description?.trim()
+                  ? card.description
+                  : "No description yet."}
               </div>
             </section>
 
@@ -252,10 +274,7 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
             </section>
 
             <section className="space-y-3">
-              {/* Streaming section (f14) */}
-              <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                Streaming section coming in f14.
-              </div>
+              <StreamingMessage streamingState={streamingState} />
             </section>
           </CardContent>
         </SurfaceCard>
@@ -268,7 +287,11 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
             <div className="space-y-2">
               <Label htmlFor="card-status">Status</Label>
               <Select onValueChange={handleStatusChange} value={card.status}>
-                <SelectTrigger className="w-full" disabled={updateMutation.isPending} id="card-status">
+                <SelectTrigger
+                  className="w-full"
+                  disabled={updateMutation.isPending}
+                  id="card-status"
+                >
                   <SelectValue placeholder="Select a status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -287,11 +310,17 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
                 onValueChange={handleAgentChange}
                 value={card.agent_bot ?? unassignedAgentValue}
               >
-                <SelectTrigger className="w-full" disabled={updateMutation.isPending} id="card-agent">
+                <SelectTrigger
+                  className="w-full"
+                  disabled={updateMutation.isPending}
+                  id="card-agent"
+                >
                   <SelectValue placeholder="Assign an agent" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={unassignedAgentValue}>Unassigned</SelectItem>
+                  <SelectItem value={unassignedAgentValue}>
+                    Unassigned
+                  </SelectItem>
                   {sortedAgents.map((agent) => (
                     <SelectItem key={agent.name} value={agent.name}>
                       {agent.name}
@@ -318,16 +347,22 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
               <dl className="grid gap-2 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <dt className="text-muted-foreground">Created</dt>
-                  <dd className="text-right">{formatTimestamp(card.created_at)}</dd>
+                  <dd className="text-right">
+                    {formatTimestamp(card.created_at)}
+                  </dd>
                 </div>
                 <div className="flex items-center justify-between gap-3">
                   <dt className="text-muted-foreground">Updated</dt>
-                  <dd className="text-right">{formatTimestamp(card.updated_at)}</dd>
+                  <dd className="text-right">
+                    {formatTimestamp(card.updated_at)}
+                  </dd>
                 </div>
                 {card.archived_at ? (
                   <div className="flex items-center justify-between gap-3">
                     <dt className="text-muted-foreground">Archived</dt>
-                    <dd className="text-right">{formatTimestamp(card.archived_at)}</dd>
+                    <dd className="text-right">
+                      {formatTimestamp(card.archived_at)}
+                    </dd>
                   </div>
                 ) : null}
               </dl>
@@ -345,18 +380,30 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
               <Label>Actions</Label>
               <div className="grid gap-2">
                 {!card.archived_at ? (
-                  <Button disabled={isMutating} onClick={() => archiveMutation.mutate()} variant="outline">
+                  <Button
+                    disabled={isMutating}
+                    onClick={() => archiveMutation.mutate()}
+                    variant="outline"
+                  >
                     <Archive />
                     Archive
                   </Button>
                 ) : null}
-                {card.status === 'in_progress' ? (
-                  <Button disabled={isMutating} onClick={() => setAbortOpen(true)} variant="outline">
+                {card.status === "in_progress" ? (
+                  <Button
+                    disabled={isMutating}
+                    onClick={() => setAbortOpen(true)}
+                    variant="outline"
+                  >
                     <CircleSlash />
                     Abort
                   </Button>
                 ) : null}
-                <Button disabled={isMutating} onClick={() => setDeleteOpen(true)} variant="destructive">
+                <Button
+                  disabled={isMutating}
+                  onClick={() => setDeleteOpen(true)}
+                  variant="destructive"
+                >
                   <Trash2 />
                   Delete
                 </Button>
@@ -375,7 +422,9 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={abortMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={abortMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               disabled={abortMutation.isPending}
               onClick={() => abortMutation.mutate()}
@@ -396,7 +445,9 @@ export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) 
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               disabled={deleteMutation.isPending}
               onClick={() => deleteMutation.mutate()}
