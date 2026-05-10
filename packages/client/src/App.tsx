@@ -7,6 +7,7 @@ import { AppLayout } from './components/layout/AppLayout';
 import { TooltipProvider } from './components/ui/tooltip';
 import { BacklogPage } from './pages/BacklogPage';
 import { BoardPage } from './pages/BoardPage';
+import { CardPage } from './pages/CardPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,17 +31,17 @@ export function App() {
       <TooltipProvider>
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<LoginPage />} />
+            <Route element={<LoginPage />} path="/login" />
             <Route element={<AuthGuard />}>
               <Route element={<AppLayout />}>
-                <Route path="/board" element={<BoardPage />} />
-                <Route path="/backlog" element={<BacklogPage />} />
-                <Route path="/cards/:id" element={<PlaceholderPage title="Card detail (coming soon)" />} />
-                <Route path="/cards" element={<PlaceholderPage title="All cards (coming soon)" />} />
-                <Route path="/chat/:agent" element={<PlaceholderPage title="Chat (coming soon)" />} />
+                <Route element={<BoardPage />} path="/board" />
+                <Route element={<BacklogPage />} path="/backlog" />
+                <Route element={<CardPage />} path="/cards/:id" />
+                <Route element={<PlaceholderPage title="All cards (coming soon)" />} path="/cards" />
+                <Route element={<PlaceholderPage title="Chat (coming soon)" />} path="/chat/:agent" />
               </Route>
             </Route>
-            <Route path="*" element={<Navigate to="/board" replace />} />
+            <Route element={<Navigate replace to="/board" />} path="*" />
           </Routes>
         </BrowserRouter>
       </TooltipProvider>
