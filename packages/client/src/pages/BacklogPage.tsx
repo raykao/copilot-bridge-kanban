@@ -3,10 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 
 import type { Card } from '@/api/types';
-import { api } from '@/api/client';
+import { api, getErrorMessage } from '@/api/client';
 import { BoardView } from '@/components/board/BoardView';
 import { CreateCardModal } from '@/components/board/CreateCardModal';
+import { ErrorState } from '@/components/ErrorState';
 import { FilterBar } from '@/components/board/FilterBar';
+import { BoardPageSkeleton } from '@/components/PageSkeletons';
 import { Button } from '@/components/ui/button';
 import { applyFilters, useFilterStore } from '@/stores/filters';
 
@@ -26,15 +28,12 @@ export function BacklogPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const filters = useFilterStore();
 
-  const {
-    data: cards = [],
-    isLoading,
-    isError,
-  } = useQuery({
+  const cardsQuery = useQuery({
     queryKey: ['cards', { agent: 'none' }],
     queryFn: () => api.cards.list({ agent: 'none' }),
   });
 
+  const cards = cardsQuery.data ?? [];
   const filteredCards = useMemo(() => applyFilters(cards, filters), [cards, filters]);
 
   const columns = useMemo(
@@ -46,6 +45,23 @@ export function BacklogPage() {
       })),
     [filteredCards],
   );
+
+  if (cardsQuery.isPending) {
+    return <BoardPageSkeleton columns={3} />;
+  }
+
+  if (cardsQuery.isError) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <ErrorState
+          message={getErrorMessage(cardsQuery.error, 'Failed to load the backlog.')}
+          onRetry={() => {
+            void cardsQuery.refetch();
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -64,14 +80,8 @@ export function BacklogPage() {
 
         <FilterBar cards={cards} />
 
-        {isError ? (
-          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            Unable to load the backlog right now.
-          </div>
-        ) : null}
-
         <div className="min-h-0 flex-1">
-          <BoardView columns={columns} isLoading={isLoading} mode="status" />
+          <BoardView columns={columns} mode="status" />
         </div>
       </div>
 

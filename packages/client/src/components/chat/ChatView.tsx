@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, MessageSquareDashed } from 'lucide-react';
 
-import { api } from '@/api/client';
+import { api, getErrorMessage } from '@/api/client';
 import type { Card, CardComment } from '@/api/types';
+import { ErrorState } from '@/components/ErrorState';
+import { LiveUpdatesBanner } from '@/components/LiveUpdatesBanner';
+import { ChatPageSkeleton } from '@/components/PageSkeletons';
 import { StreamingMessage } from '@/components/card/StreamingMessage';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { ChatMessage } from '@/components/chat/ChatMessage';
@@ -47,15 +50,12 @@ export function ChatView({ agentName }: ChatViewProps) {
     [agentName],
   );
 
-  const {
-    data: activeChatCards = [],
-    isLoading: activeCardLoading,
-    isError: activeCardError,
-  } = useQuery({
+  const activeCardQuery = useQuery({
     queryKey: activeChatQueryKey,
     queryFn: () => api.cards.list({ agent: agentName, type: 'chat', status: 'in_progress' }),
   });
 
+  const activeChatCards = activeCardQuery.data ?? [];
   const activeCard = useMemo(() => sortByUpdatedAt(activeChatCards)[0] ?? null, [activeChatCards]);
   const activeCardId = activeCard?.id ?? null;
 
@@ -64,16 +64,13 @@ export function ChatView({ agentName }: ChatViewProps) {
     [activeCardId],
   );
 
-  const {
-    data: chatHistory = [],
-    isLoading: commentsLoading,
-    isError: commentsError,
-  } = useQuery({
+  const commentsQuery = useQuery({
     queryKey: commentsQueryKey,
     queryFn: () => api.comments.list(activeCardId!),
     enabled: !!activeCardId,
   });
 
+  const chatHistory = commentsQuery.data ?? [];
   const sortedChatHistory = useMemo(() => sortComments(chatHistory), [chatHistory]);
 
   const streamingState = useCardEvents({
@@ -165,8 +162,26 @@ export function ChatView({ agentName }: ChatViewProps) {
   };
 
   const isBusy = createChatMutation.isPending || sendMessageMutation.isPending || streamingState.isStreaming;
+  const isLoading = activeCardQuery.isPending || (!!activeCardId && commentsQuery.isPending);
   const showEmptyState =
-    !activeCardLoading && !commentsLoading && !activeCardId && sortedChatHistory.length === 0;
+    !isLoading && !activeCardId && sortedChatHistory.length === 0;
+
+  if (isLoading) {
+    return <ChatPageSkeleton />;
+  }
+
+  if (activeCardQuery.isError || commentsQuery.isError) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <ErrorState
+          message={getErrorMessage(activeCardQuery.error ?? commentsQuery.error, 'Failed to load this chat.')}
+          onRetry={() => {
+            void Promise.all([activeCardQuery.refetch(), commentsQuery.refetch()]);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -180,12 +195,6 @@ export function ChatView({ agentName }: ChatViewProps) {
 
         <CreateCardFromChat agentName={agentName} chatHistory={sortedChatHistory} />
       </div>
-
-      {activeCardError || commentsError ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Unable to load this chat right now.
-        </div>
-      ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center gap-3 border-b px-4 py-3">
@@ -202,11 +211,10 @@ export function ChatView({ agentName }: ChatViewProps) {
 
         <ScrollArea className="min-h-0 flex-1">
           <div className="space-y-4 px-4 py-4">
-            {activeCardLoading || commentsLoading ? (
-              <div className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-                Loading conversation...
-              </div>
-            ) : null}
+            <LiveUpdatesBanner
+              onRetry={streamingState.retry}
+              status={streamingState.connectionStatus}
+            />
 
             {showEmptyState ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-12 text-center">
@@ -218,17 +226,15 @@ export function ChatView({ agentName }: ChatViewProps) {
               </div>
             ) : null}
 
-            {!activeCardLoading && !commentsLoading
-              ? sortedChatHistory.map((comment) => (
-                  <ChatMessage
-                    authorId={comment.author_id}
-                    authorKind={comment.author_kind}
-                    content={comment.content}
-                    key={comment.id}
-                    timestamp={comment.created_at}
-                  />
-                ))
-              : null}
+            {sortedChatHistory.map((comment) => (
+              <ChatMessage
+                authorId={comment.author_id}
+                authorKind={comment.author_kind}
+                content={comment.content}
+                key={comment.id}
+                timestamp={comment.created_at}
+              />
+            ))}
 
             <StreamingMessage streamingState={streamingState} />
             <div ref={bottomRef} />

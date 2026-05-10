@@ -31,6 +31,46 @@ export class ApiError extends Error {
   }
 }
 
+function getErrorBodyMessage(body: unknown): string | null {
+  if (!body || typeof body !== 'object') {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+  for (const key of ['error', 'message', 'detail']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+export function getErrorMessage(error: unknown, fallback = 'An error occurred'): string {
+  if (error instanceof ApiError) {
+    if (error.status === 502) {
+      return 'Bridge is unavailable. The copilot-bridge server may be down.';
+    }
+
+    return getErrorBodyMessage(error.body) ?? (error.statusText || fallback);
+  }
+
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
+export function getToastErrorMessage(error: unknown, fallback = 'An error occurred'): string | null {
+  if (error instanceof ApiError && error.status === 401) {
+    return null;
+  }
+
+  return getErrorMessage(error, fallback);
+}
+
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   const method = options.method?.toUpperCase();
