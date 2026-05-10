@@ -1,4 +1,6 @@
 import { useMemo } from 'react';
+import { useDraggable } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 import { useNavigate } from 'react-router-dom';
 
 import type { Card as CardType } from '@/api/types';
@@ -8,6 +10,7 @@ import { cn } from '@/lib/utils';
 
 interface CardPreviewProps {
   card: CardType;
+  isDragOverlay?: boolean;
 }
 
 const statusVariantMap = {
@@ -81,23 +84,34 @@ function timeAgo(dateString: string): string {
   return `${Math.floor(diff / week)}w ago`;
 }
 
-export function CardPreview({ card }: CardPreviewProps) {
-  const navigate = useNavigate();
+interface CardPreviewBodyProps {
+  card: CardType;
+  className?: string;
+  onClick: () => void;
+  onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  style?: React.CSSProperties;
+  draggableProps?: Pick<ReturnType<typeof useDraggable>, 'attributes' | 'listeners' | 'setNodeRef'>;
+}
+
+function CardPreviewBody({ card, className, onClick, onKeyDown, style, draggableProps }: CardPreviewBodyProps) {
   const relativeTime = useMemo(() => timeAgo(card.updated_at), [card.updated_at]);
 
   return (
     <Card
-      className="min-h-30 cursor-pointer gap-3 border border-border/70 shadow-sm transition-colors hover:bg-accent/40"
-      size="sm"
-      onClick={() => navigate(`/cards/${card.id}`)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          navigate(`/cards/${card.id}`);
-        }
-      }}
+      {...draggableProps?.attributes}
+      {...draggableProps?.listeners}
+      className={cn(
+        'min-h-30 gap-3 border border-border/70 shadow-sm transition-colors hover:bg-accent/40',
+        draggableProps ? 'cursor-grab active:cursor-grabbing' : 'cursor-grabbing',
+        className,
+      )}
+      ref={draggableProps?.setNodeRef}
       role="button"
+      size="sm"
+      style={style}
       tabIndex={0}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
     >
       <CardHeader className="gap-2">
         <div className="flex items-start justify-between gap-2">
@@ -133,4 +147,51 @@ export function CardPreview({ card }: CardPreviewProps) {
       </CardContent>
     </Card>
   );
+}
+
+function StaticCardPreview({ card }: { card: CardType }) {
+  const navigate = useNavigate();
+
+  return (
+    <CardPreviewBody
+      card={card}
+      className="cursor-grabbing shadow-lg"
+      onClick={() => navigate(`/cards/${card.id}`)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          navigate(`/cards/${card.id}`);
+        }
+      }}
+    />
+  );
+}
+
+function DraggableCardPreview({ card }: { card: CardType }) {
+  const navigate = useNavigate();
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: card.id });
+
+  return (
+    <CardPreviewBody
+      card={card}
+      className={cn(isDragging && 'opacity-50')}
+      draggableProps={{ attributes, listeners, setNodeRef }}
+      onClick={() => navigate(`/cards/${card.id}`)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          navigate(`/cards/${card.id}`);
+        }
+      }}
+      style={{ transform: CSS.Translate.toString(transform) }}
+    />
+  );
+}
+
+export function CardPreview({ card, isDragOverlay = false }: CardPreviewProps) {
+  if (isDragOverlay) {
+    return <StaticCardPreview card={card} />;
+  }
+
+  return <DraggableCardPreview card={card} />;
 }

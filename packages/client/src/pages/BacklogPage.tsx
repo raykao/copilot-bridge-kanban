@@ -64,7 +64,7 @@ export function BacklogPage() {
         ) : null}
 
         <div className="min-h-0 flex-1">
-          <BoardView columns={columns} isLoading={isLoading} />
+          <BoardView columns={columns} isLoading={isLoading} mode="status" />
         </div>
       </div>
 

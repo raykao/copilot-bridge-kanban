@@ -1,18 +1,27 @@
+import { useDroppable } from '@dnd-kit/core';
+
 import type { Card as CardType } from '@/api/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 import { CardPreview } from './CardPreview';
 
 interface BoardColumnProps {
+  columnId: string;
   title: string;
   cards: CardType[];
   count?: number;
 }
 
-export function BoardColumn({ title, cards, count = cards.length }: BoardColumnProps) {
+export function BoardColumn({ columnId, title, cards, count = cards.length }: BoardColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: columnId });
+
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col rounded-xl border bg-muted/30">
+    <div
+      className={cn('flex h-full w-72 shrink-0 flex-col rounded-xl border bg-muted/30 transition-colors', isOver && 'bg-accent/50')}
+      ref={setNodeRef}
+    >
       <div className="border-b px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">{title}</h2>

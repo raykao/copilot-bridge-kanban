@@ -75,7 +75,7 @@ export function BoardPage() {
         ) : null}
 
         <div className="min-h-0 flex-1">
-          <BoardView columns={columns} isLoading={isLoading} />
+          <BoardView columns={columns} isLoading={isLoading} mode="agent" />
         </div>
       </div>
 
