@@ -5,6 +5,8 @@ import { AuthGuard } from './components/auth/AuthGuard';
 import { LoginPage } from './components/auth/LoginPage';
 import { AppLayout } from './components/layout/AppLayout';
 import { TooltipProvider } from './components/ui/tooltip';
+import { BacklogPage } from './pages/BacklogPage';
+import { BoardPage } from './pages/BoardPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,8 +33,8 @@ export function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route element={<AuthGuard />}>
               <Route element={<AppLayout />}>
-                <Route path="/board" element={<PlaceholderPage title="Board (coming soon)" />} />
-                <Route path="/backlog" element={<PlaceholderPage title="Backlog (coming soon)" />} />
+                <Route path="/board" element={<BoardPage />} />
+                <Route path="/backlog" element={<BacklogPage />} />
                 <Route path="/cards/:id" element={<PlaceholderPage title="Card detail (coming soon)" />} />
                 <Route path="/cards" element={<PlaceholderPage title="All cards (coming soon)" />} />
                 <Route path="/chat/:agent" element={<PlaceholderPage title="Chat (coming soon)" />} />

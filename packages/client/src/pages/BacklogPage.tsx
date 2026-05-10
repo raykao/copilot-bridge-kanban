@@ -1,0 +1,58 @@
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+import type { Card } from '@/api/types';
+import { api } from '@/api/client';
+import { BoardView } from '@/components/board/BoardView';
+
+const backlogStatuses = ['idea', 'refining', 'ready'] as const;
+
+function formatStatus(status: (typeof backlogStatuses)[number]): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function sortCards(cards: Card[]): Card[] {
+  return [...cards].sort(
+    (left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
+  );
+}
+
+export function BacklogPage() {
+  const {
+    data: cards = [],
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ['cards', { agent: 'none' }],
+    queryFn: () => api.cards.list({ agent: 'none' }),
+  });
+
+  const columns = useMemo(
+    () =>
+      backlogStatuses.map((status) => ({
+        id: status,
+        title: formatStatus(status),
+        cards: sortCards(cards.filter((card) => card.status === status)),
+      })),
+    [cards],
+  );
+
+  return (
+    <div className="flex h-full flex-col gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Backlog</h1>
+        <p className="text-sm text-muted-foreground">Unassigned cards grouped by readiness.</p>
+      </div>
+
+      {isError ? (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          Unable to load the backlog right now.
+        </div>
+      ) : null}
+
+      <div className="min-h-0 flex-1">
+        <BoardView columns={columns} isLoading={isLoading} />
+      </div>
+    </div>
+  );
+}
