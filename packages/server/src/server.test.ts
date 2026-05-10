@@ -21,12 +21,18 @@ describe('createServer', () => {
     const server = await createServer(config);
     servers.push(server);
 
-    const response = await server.inject({
+    const healthz = await server.inject({
       method: 'GET',
       url: '/healthz',
     });
+    const apiHealth = await server.inject({
+      method: 'GET',
+      url: '/api/health',
+    });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: 'ok' });
+    expect(healthz.statusCode).toBe(200);
+    expect(healthz.json()).toEqual({ status: 'ok' });
+    expect(apiHealth.statusCode).toBe(200);
+    expect(apiHealth.json()).toEqual({ status: 'ok' });
   });
 });

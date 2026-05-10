@@ -145,6 +145,7 @@ export function registerSessionMiddleware(app: FastifyInstance, db: Database.Dat
 
     if (
       requestPath === '/healthz' ||
+      requestPath === '/api/health' ||
       requestPath === '/api/auth/login' ||
       !requestPath.startsWith('/api/')
     ) {
