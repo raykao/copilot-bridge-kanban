@@ -127,6 +127,19 @@ describe('auth routes', () => {
     expect(response.json()).toEqual({ error: 'Invalid credentials' });
   });
 
+  it('returns 400 when login body is missing required fields', async () => {
+    const { server } = await createTestApp();
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: 'Username and password are required' });
+  });
+
   it('returns the current user when the session is valid', async () => {
     const { db, server } = await createTestApp();
     const user = await createUser(db, 'ray', 'secret-password');

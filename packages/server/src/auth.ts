@@ -6,6 +6,7 @@ import type Database from 'better-sqlite3';
 
 const SALT_ROUNDS = 12;
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+const DUMMY_PASSWORD_HASH = '$2b$12$Jr4fVq3g0P8u5r5VQj0s4e6j2m7O6R8tP8X0Jm2G1aN9Q7rK6lG9S';
 export const COOKIE_NAME = 'kanban_session';
 
 export interface AuthUser {
@@ -45,6 +46,7 @@ export async function verifyPassword(
     .get(username) as { id: string; username: string; password_hash: string } | undefined;
 
   if (!row) {
+    await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
     return null;
   }
 
@@ -133,18 +135,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
   });
 
   app.get('/api/auth/me', async (request, reply) => {
-    const sessionId = request.cookies[COOKIE_NAME];
-    if (!sessionId) {
-      return reply.status(401).send({ error: 'Not authenticated' });
-    }
-
-    const user = getSessionUser(db, sessionId);
-    if (!user) {
-      reply.clearCookie(COOKIE_NAME, { path: '/' });
-      return reply.status(401).send({ error: 'Session expired' });
-    }
-
-    return reply.send({ user });
+    return reply.send({ user: request.user });
   });
 }
 
