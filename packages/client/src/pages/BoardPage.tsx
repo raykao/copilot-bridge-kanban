@@ -6,7 +6,9 @@ import type { Card } from '@/api/types';
 import { api } from '@/api/client';
 import { BoardView } from '@/components/board/BoardView';
 import { CreateCardModal } from '@/components/board/CreateCardModal';
+import { FilterBar } from '@/components/board/FilterBar';
 import { Button } from '@/components/ui/button';
+import { applyFilters, useFilterStore } from '@/stores/filters';
 
 function sortCards(cards: Card[]): Card[] {
   return [...cards].sort(
@@ -16,6 +18,7 @@ function sortCards(cards: Card[]): Card[] {
 
 export function BoardPage() {
   const [createOpen, setCreateOpen] = useState(false);
+  const filters = useFilterStore();
 
   const {
     data: agents = [],
@@ -36,6 +39,8 @@ export function BoardPage() {
     queryFn: () => api.cards.list(),
   });
 
+  const filteredCards = useMemo(() => applyFilters(cards, filters), [cards, filters]);
+
   const columns = useMemo(
     () =>
       [...agents]
@@ -44,10 +49,12 @@ export function BoardPage() {
           id: agent.name,
           title: agent.name,
           cards: sortCards(
-            cards.filter((card) => card.agent_bot === agent.name && card.status !== 'archived'),
+            filteredCards.filter(
+              (card) => card.agent_bot === agent.name && card.status !== 'archived',
+            ),
           ),
         })),
-    [agents, cards],
+    [agents, filteredCards],
   );
 
   const isLoading = agentsLoading || cardsLoading;
@@ -67,6 +74,8 @@ export function BoardPage() {
             New Card
           </Button>
         </div>
+
+        <FilterBar cards={cards} />
 
         {hasError ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">

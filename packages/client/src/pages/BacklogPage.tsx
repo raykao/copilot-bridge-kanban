@@ -6,7 +6,9 @@ import type { Card } from '@/api/types';
 import { api } from '@/api/client';
 import { BoardView } from '@/components/board/BoardView';
 import { CreateCardModal } from '@/components/board/CreateCardModal';
+import { FilterBar } from '@/components/board/FilterBar';
 import { Button } from '@/components/ui/button';
+import { applyFilters, useFilterStore } from '@/stores/filters';
 
 const backlogStatuses = ['idea', 'refining', 'ready'] as const;
 
@@ -22,6 +24,7 @@ function sortCards(cards: Card[]): Card[] {
 
 export function BacklogPage() {
   const [createOpen, setCreateOpen] = useState(false);
+  const filters = useFilterStore();
 
   const {
     data: cards = [],
@@ -32,14 +35,16 @@ export function BacklogPage() {
     queryFn: () => api.cards.list({ agent: 'none' }),
   });
 
+  const filteredCards = useMemo(() => applyFilters(cards, filters), [cards, filters]);
+
   const columns = useMemo(
     () =>
       backlogStatuses.map((status) => ({
         id: status,
         title: formatStatus(status),
-        cards: sortCards(cards.filter((card) => card.status === status)),
+        cards: sortCards(filteredCards.filter((card) => card.status === status)),
       })),
-    [cards],
+    [filteredCards],
   );
 
   return (
@@ -56,6 +61,8 @@ export function BacklogPage() {
             New Card
           </Button>
         </div>
+
+        <FilterBar cards={cards} />
 
         {isError ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
