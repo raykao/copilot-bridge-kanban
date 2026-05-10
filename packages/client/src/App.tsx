@@ -7,6 +7,7 @@ import { AppLayout } from './components/layout/AppLayout';
 import { TooltipProvider } from './components/ui/tooltip';
 import { BacklogPage } from './pages/BacklogPage';
 import { BoardPage } from './pages/BoardPage';
+import { CardListPage } from './pages/CardListPage';
 import { CardPage } from './pages/CardPage';
 import { ChatPage } from './pages/ChatPage';
 
@@ -17,14 +18,6 @@ const queryClient = new QueryClient({
     },
   },
 });
-
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="flex min-h-full items-center justify-center rounded-lg border border-dashed border-border bg-card px-6 py-10 text-center text-card-foreground shadow-sm">
-      {title}
-    </div>
-  );
-}
 
 export function App() {
   return (
@@ -38,7 +31,7 @@ export function App() {
                 <Route element={<BoardPage />} path="/board" />
                 <Route element={<BacklogPage />} path="/backlog" />
                 <Route element={<CardPage />} path="/cards/:id" />
-                <Route element={<PlaceholderPage title="All cards (coming soon)" />} path="/cards" />
+                <Route element={<CardListPage />} path="/cards" />
                 <Route element={<ChatPage />} path="/chat/:agent" />
               </Route>
             </Route>
