@@ -26,5 +26,5 @@ export function CardPage() {
     return <div>Card not found</div>;
   }
 
-  return <CardDetailPage card={cardDetail.card} agents={agents ?? []} />;
+  return <CardDetailPage card={cardDetail.card} comments={cardDetail.comments} agents={agents ?? []} />;
 }

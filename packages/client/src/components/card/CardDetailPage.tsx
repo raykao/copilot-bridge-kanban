@@ -4,7 +4,8 @@ import { Archive, CircleSlash, PencilLine, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { api } from '@/api/client';
-import type { Agent, Card } from '@/api/types';
+import type { Agent, Card, CardComment } from '@/api/types';
+import { CommentThread } from '@/components/card/CommentThread';
 import { LabelEditor } from '@/components/card/LabelEditor';
 import {
   AlertDialog,
@@ -32,6 +33,7 @@ import { Separator } from '@/components/ui/separator';
 interface CardDetailPageProps {
   card: Card;
   agents: Agent[];
+  comments: CardComment[];
 }
 
 type CardUpdatePatch = Partial<Pick<Card, 'title' | 'status'>> & {
@@ -70,7 +72,7 @@ function formatTimestamp(timestamp: string | null): string {
   return value.toLocaleString();
 }
 
-export function CardDetailPage({ card, agents }: CardDetailPageProps) {
+export function CardDetailPage({ card, agents, comments }: CardDetailPageProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -162,7 +164,11 @@ export function CardDetailPage({ card, agents }: CardDetailPageProps) {
     }
   }
 
-  function handleAgentChange(value: string) {
+  function handleAgentChange(value: string | null) {
+    if (!value) {
+      return;
+    }
+
     const nextAgent = value === unassignedAgentValue ? null : value;
     if (nextAgent === card.agent_bot) {
       return;
@@ -171,7 +177,11 @@ export function CardDetailPage({ card, agents }: CardDetailPageProps) {
     updateMutation.mutate({ agent: nextAgent });
   }
 
-  function handleStatusChange(value: string) {
+  function handleStatusChange(value: string | null) {
+    if (!value) {
+      return;
+    }
+
     const nextStatus = value as Card['status'];
     if (nextStatus === card.status) {
       return;
@@ -238,10 +248,7 @@ export function CardDetailPage({ card, agents }: CardDetailPageProps) {
             <Separator />
 
             <section className="space-y-3">
-              {/* Comments section (f13) */}
-              <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                Comments section coming in f13.
-              </div>
+              <CommentThread cardId={card.id} comments={comments} />
             </section>
 
             <section className="space-y-3">
