@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bot, Inbox, LayoutDashboard, List, LogOut } from 'lucide-react';
+import { Bot, Inbox, LayoutDashboard, List, LogOut, MessageSquare, type LucideIcon } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { api } from '@/api/client';
@@ -45,7 +45,7 @@ function NavItem({
   onNavigate,
 }: {
   href: string;
-  icon: typeof Bot;
+  icon: LucideIcon;
   label: string;
   active: boolean;
   onNavigate?: () => void;
@@ -120,7 +120,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="flex min-h-0 flex-1 flex-col px-3 py-4">
         <div className="px-3 pb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-          Agents
+          Chat
         </div>
         <ScrollArea className="min-h-0 flex-1 pr-2">
           <div className="space-y-1 pb-2">
@@ -140,16 +140,20 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               <p className="px-3 py-2 text-sm text-muted-foreground">No agents found.</p>
             ) : null}
 
-            {sortedAgents.map((agent) => (
-              <NavItem
-                active={location.pathname === `/chat/${agent.name}`}
-                href={`/chat/${agent.name}`}
-                icon={Bot}
-                key={agent.name}
-                label={agent.name}
-                onNavigate={onNavigate}
-              />
-            ))}
+            {sortedAgents.map((agent) => {
+              const href = `/chat/${encodeURIComponent(agent.name)}`;
+
+              return (
+                <NavItem
+                  active={location.pathname === href}
+                  href={href}
+                  icon={MessageSquare}
+                  key={agent.name}
+                  label={agent.name}
+                  onNavigate={onNavigate}
+                />
+              );
+            })}
           </div>
         </ScrollArea>
       </div>

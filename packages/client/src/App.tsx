@@ -8,6 +8,7 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { BacklogPage } from './pages/BacklogPage';
 import { BoardPage } from './pages/BoardPage';
 import { CardPage } from './pages/CardPage';
+import { ChatPage } from './pages/ChatPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,7 +39,7 @@ export function App() {
                 <Route element={<BacklogPage />} path="/backlog" />
                 <Route element={<CardPage />} path="/cards/:id" />
                 <Route element={<PlaceholderPage title="All cards (coming soon)" />} path="/cards" />
-                <Route element={<PlaceholderPage title="Chat (coming soon)" />} path="/chat/:agent" />
+                <Route element={<ChatPage />} path="/chat/:agent" />
               </Route>
             </Route>
             <Route element={<Navigate replace to="/board" />} path="*" />

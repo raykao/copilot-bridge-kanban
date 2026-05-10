@@ -40,6 +40,9 @@ export interface NewCard {
   title: string;
   description?: string;
   agent?: string;
+  agent_bot?: string;
+  type?: Card['type'];
+  status?: Card['status'];
   labels?: string[];
   metadata?: Record<string, unknown>;
 }

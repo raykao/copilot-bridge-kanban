@@ -100,9 +100,15 @@ const agents = {
 
 const cards = {
   create(card: NewCard): Promise<Card> {
+    const normalizedCard = {
+      ...card,
+      agent: card.agent ?? card.agent_bot,
+      agent_bot: card.agent_bot ?? card.agent,
+    };
+
     return apiFetch<Card>('/api/v1/cards', {
       method: 'POST',
-      body: JSON.stringify(card),
+      body: JSON.stringify(normalizedCard),
     });
   },
 
@@ -141,6 +147,10 @@ const cards = {
 };
 
 const comments = {
+  list(cardId: string): Promise<CardComment[]> {
+    return apiFetch<CardComment[]>(`/api/v1/cards/${encodeURIComponent(cardId)}/comments`);
+  },
+
   add(cardId: string, content: string): Promise<CardComment> {
     return apiFetch<CardComment>(`/api/v1/cards/${encodeURIComponent(cardId)}/comments`, {
       method: 'POST',
