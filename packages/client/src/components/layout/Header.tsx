@@ -90,22 +90,22 @@ export function Header({ onOpenMobileNav }: HeaderProps) {
   };
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-background/95 px-4 backdrop-blur supports-backdrop-filter:bg-background/80">
+    <header className="flex h-14 items-center justify-between border-b bg-background/95 px-3 backdrop-blur supports-backdrop-filter:bg-background/80 sm:h-16 sm:px-4">
       <div className="flex min-w-0 items-center gap-3">
-        <Button className="md:hidden" onClick={onOpenMobileNav} size="icon" type="button" variant="ghost">
+        <Button className="size-11 md:hidden" onClick={onOpenMobileNav} type="button" variant="ghost">
           <Menu className="size-5" />
           <span className="sr-only">Open navigation menu</span>
         </Button>
         <Separator className="hidden h-6 md:block" orientation="vertical" />
         <div className="min-w-0">
-          <p className="truncate text-lg font-semibold">{title}</p>
+          <p className="truncate text-base font-semibold sm:text-lg">{title}</p>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <Tooltip>
           <TooltipTrigger
-            render={<Button onClick={handleThemeToggle} size="icon" type="button" variant="ghost" />}
+            render={<Button className="size-11" onClick={handleThemeToggle} type="button" variant="ghost" />}
           >
             <ThemeIcon className="size-4" />
             <span className="sr-only">{`Theme: ${themeLabelMap[mode]}. Switch to ${themeLabelMap[nextMode]}.`}</span>
@@ -113,7 +113,7 @@ export function Header({ onOpenMobileNav }: HeaderProps) {
           <TooltipContent>{`Theme: ${themeLabelMap[mode]}. Click to switch to ${themeLabelMap[nextMode]}.`}</TooltipContent>
         </Tooltip>
 
-        <div className="flex items-center gap-3 rounded-full border bg-card px-2 py-1.5 text-sm shadow-sm">
+        <div className="flex items-center gap-2 rounded-full border bg-card px-2 py-1 text-sm shadow-sm sm:gap-3 sm:py-1.5">
           <Avatar size="sm">
             <AvatarFallback>{getInitials(user?.username)}</AvatarFallback>
           </Avatar>

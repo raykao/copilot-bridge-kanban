@@ -54,7 +54,7 @@ export function ChatMessage({
   if (authorKind === 'system') {
     return (
       <div className="flex justify-center">
-        <div className="max-w-xl rounded-full border bg-muted/50 px-4 py-2 text-center text-sm text-muted-foreground">
+        <div className="max-w-[92%] rounded-full border bg-muted/50 px-4 py-2 text-center text-sm text-muted-foreground sm:max-w-xl">
           <div className="font-medium text-foreground">{authorId}</div>
           <div className="mt-1 whitespace-pre-wrap">{content}</div>
           <div className="mt-2 text-xs">{formatRelativeTime(timestamp)}</div>
@@ -70,13 +70,13 @@ export function ChatMessage({
     <div className={cn('flex', isHuman ? 'justify-end' : 'justify-start')}>
       <article
         className={cn(
-          'max-w-[85%] rounded-2xl px-4 py-3 shadow-sm sm:max-w-[75%]',
+          'max-w-[92%] break-words rounded-2xl px-4 py-3 shadow-sm sm:max-w-[80%] lg:max-w-[75%]',
           isHuman ? 'bg-primary text-primary-foreground' : 'border bg-muted/40 text-foreground',
         )}
       >
         <div
           className={cn(
-            'mb-2 flex items-center gap-2 text-xs',
+            'mb-2 flex flex-wrap items-center gap-2 text-xs',
             isHuman ? 'justify-end text-primary-foreground/80' : 'text-muted-foreground',
           )}
         >

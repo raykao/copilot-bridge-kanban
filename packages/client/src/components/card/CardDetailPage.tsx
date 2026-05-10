@@ -208,15 +208,15 @@ export function CardDetailPage({
 
   return (
     <>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
-        <SurfaceCard className="min-h-[calc(100vh-10rem)]">
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
+        <SurfaceCard className="min-h-[calc(100vh-10rem)] min-w-0 flex-1">
           <CardHeader className="gap-4 border-b">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1 space-y-2">
                 {isEditingTitle ? (
                   <Input
                     autoFocus
-                    className="h-auto px-0 py-0 text-3xl font-semibold tracking-tight"
+                    className="h-auto px-0 py-0 text-2xl font-semibold tracking-tight sm:text-3xl"
                     onBlur={() => {
                       void commitTitle();
                     }}
@@ -236,11 +236,11 @@ export function CardDetailPage({
                   />
                 ) : (
                   <button
-                    className="inline-flex items-center gap-2 text-left"
+                    className="inline-flex min-h-11 items-center gap-2 text-left"
                     onClick={() => setIsEditingTitle(true)}
                     type="button"
                   >
-                    <CardTitle className="text-3xl font-semibold tracking-tight">
+                    <CardTitle className="break-words text-2xl font-semibold tracking-tight sm:text-3xl">
                       {card.title}
                     </CardTitle>
                     <PencilLine className="size-4 text-muted-foreground" />
@@ -262,7 +262,7 @@ export function CardDetailPage({
                   Plain text for now. Markdown rendering ships in f13.
                 </p>
               </div>
-              <div className="min-h-32 rounded-xl border bg-muted/20 p-4 text-sm whitespace-pre-wrap text-foreground">
+              <div className="min-h-32 whitespace-pre-wrap break-words rounded-xl border bg-muted/20 p-4 text-sm text-foreground">
                 {card.description?.trim()
                   ? card.description
                   : "No description yet."}
@@ -285,7 +285,7 @@ export function CardDetailPage({
           </CardContent>
         </SurfaceCard>
 
-        <SurfaceCard className="lg:sticky lg:top-4">
+        <SurfaceCard className="w-full shrink-0 lg:sticky lg:top-4 lg:w-80">
           <CardHeader>
             <CardTitle>Details</CardTitle>
           </CardHeader>
@@ -294,7 +294,7 @@ export function CardDetailPage({
               <Label htmlFor="card-status">Status</Label>
               <Select onValueChange={handleStatusChange} value={card.status}>
                 <SelectTrigger
-                  className="w-full"
+                  className="min-h-11 w-full"
                   disabled={updateMutation.isPending}
                   id="card-status"
                 >
@@ -317,7 +317,7 @@ export function CardDetailPage({
                 value={card.agent_bot ?? unassignedAgentValue}
               >
                 <SelectTrigger
-                  className="w-full"
+                  className="min-h-11 w-full"
                   disabled={updateMutation.isPending}
                   id="card-agent"
                 >
@@ -353,23 +353,23 @@ export function CardDetailPage({
               <dl className="grid gap-2 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <dt className="text-muted-foreground">Created</dt>
-                  <dd className="text-right">
-                    {formatTimestamp(card.created_at)}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <dt className="text-muted-foreground">Updated</dt>
-                  <dd className="text-right">
-                    {formatTimestamp(card.updated_at)}
-                  </dd>
-                </div>
-                {card.archived_at ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <dt className="text-muted-foreground">Archived</dt>
-                    <dd className="text-right">
-                      {formatTimestamp(card.archived_at)}
-                    </dd>
-                  </div>
+                      <dd className="break-words text-right">
+                        {formatTimestamp(card.created_at)}
+                      </dd>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-muted-foreground">Updated</dt>
+                      <dd className="break-words text-right">
+                        {formatTimestamp(card.updated_at)}
+                      </dd>
+                    </div>
+                    {card.archived_at ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-muted-foreground">Archived</dt>
+                        <dd className="break-words text-right">
+                          {formatTimestamp(card.archived_at)}
+                        </dd>
+                      </div>
                 ) : null}
               </dl>
             </div>
@@ -394,6 +394,7 @@ export function CardDetailPage({
               <div className="grid gap-2">
                 {!card.archived_at ? (
                   <Button
+                    className="min-h-11"
                     disabled={isMutating}
                     onClick={() => archiveMutation.mutate()}
                     variant="outline"
@@ -404,6 +405,7 @@ export function CardDetailPage({
                 ) : null}
                 {card.status === "in_progress" ? (
                   <Button
+                    className="min-h-11"
                     disabled={isMutating}
                     onClick={() => setAbortOpen(true)}
                     variant="outline"
@@ -413,6 +415,7 @@ export function CardDetailPage({
                   </Button>
                 ) : null}
                 <Button
+                  className="min-h-11"
                   disabled={isMutating}
                   onClick={() => setDeleteOpen(true)}
                   variant="destructive"
@@ -435,10 +438,11 @@ export function CardDetailPage({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={abortMutation.isPending}>
+            <AlertDialogCancel className="min-h-11" disabled={abortMutation.isPending}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
+              className="min-h-11"
               disabled={abortMutation.isPending}
               onClick={() => abortMutation.mutate()}
               variant="destructive"
@@ -458,10 +462,11 @@ export function CardDetailPage({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>
+            <AlertDialogCancel className="min-h-11" disabled={deleteMutation.isPending}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
+              className="min-h-11"
               disabled={deleteMutation.isPending}
               onClick={() => deleteMutation.mutate()}
               variant="destructive"
