@@ -12,7 +12,10 @@ export async function createServer(config: AppConfig): Promise<FastifyInstance> 
     secret: config.sessionSecret,
   });
 
-  app.get('/healthz', async () => ({ status: 'ok' }));
+  const healthHandler = async () => ({ status: 'ok' });
+
+  app.get('/healthz', healthHandler);
+  app.get('/api/health', healthHandler);
 
   const clientDist = path.resolve(import.meta.dirname, '../../client/dist');
   if (fs.existsSync(clientDist)) {
