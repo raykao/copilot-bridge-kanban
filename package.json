@@ -1,0 +1,14 @@
+{
+  "name": "copilot-bridge-kanban",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "dev": "npm run dev --workspace=packages/server",
+    "build": "npm run build --workspace=packages/client && npm run build --workspace=packages/server",
+    "test": "npm run test --workspace=packages/server && npm run test --workspace=packages/client",
+    "lint": "npm run lint --workspace=packages/client && npm run lint --workspace=packages/server"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
