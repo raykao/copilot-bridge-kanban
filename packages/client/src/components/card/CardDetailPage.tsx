@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 
 import { api } from "@/api/client";
 import type { Agent, Card, CardComment } from "@/api/types";
+import { CheckpointList } from "@/components/card/CheckpointList";
 import { CommentThread } from "@/components/card/CommentThread";
 import { LabelEditor } from "@/components/card/LabelEditor";
 import { StreamingMessage } from "@/components/card/StreamingMessage";
@@ -373,6 +374,13 @@ export function CardDetailPage({
                 {actionError}
               </div>
             ) : null}
+
+            <Separator />
+
+            <section className="space-y-3">
+              <Label>Checkpoints</Label>
+              <CheckpointList cardId={card.id} />
+            </section>
 
             <Separator />
 
