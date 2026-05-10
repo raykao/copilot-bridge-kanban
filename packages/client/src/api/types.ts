@@ -9,11 +9,18 @@ export interface Agent {
 export interface Card {
   id: string;
   channel_id: string;
-  type: 'work' | 'chat';
+  type: "work" | "chat";
   agent_bot: string | null;
   title: string;
   description: string | null;
-  status: 'idea' | 'refining' | 'ready' | 'in_progress' | 'paused' | 'done' | 'archived';
+  status:
+    | "idea"
+    | "refining"
+    | "ready"
+    | "in_progress"
+    | "paused"
+    | "done"
+    | "archived";
   created_by: string;
   workspace_subdir: string | null;
   metadata: Record<string, unknown>;
@@ -49,7 +56,7 @@ export interface Run {
   card_id: string;
   session_id: string;
   agent_name: string;
-  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  status: "running" | "completed" | "failed" | "cancelled";
   input: unknown;
   output: unknown;
   error: string | null;
@@ -60,7 +67,7 @@ export interface Run {
 export interface CardComment {
   id: string;
   card_id: string;
-  author_kind: 'human' | 'agent' | 'system';
+  author_kind: "human" | "agent" | "system";
   author_id: string;
   content: string;
   created_at: string;
@@ -82,23 +89,32 @@ export interface AuthUser {
 }
 
 export interface UserPreferences {
-  theme?: 'light' | 'dark' | 'system';
+  theme?: "light" | "dark" | "system";
   boardView?: string;
   filters?: Record<string, unknown>;
 }
 
+export interface ToolCall {
+  id: string;
+  name: string;
+  status: "pending" | "completed" | "failed";
+  input: unknown;
+  output?: unknown;
+  error?: unknown;
+}
+
 export type CardEventType =
-  | 'message.part'
-  | 'message.completed'
-  | 'run.started'
-  | 'run.completed'
-  | 'run.failed'
-  | 'run.cancelled'
-  | 'card.status'
-  | 'card.updated'
-  | 'tool.call'
-  | 'tool.result'
-  | 'heartbeat';
+  | "message.part"
+  | "message.completed"
+  | "run.started"
+  | "run.completed"
+  | "run.failed"
+  | "run.cancelled"
+  | "card.status"
+  | "card.updated"
+  | "tool.call"
+  | "tool.result"
+  | "heartbeat";
 
 export interface CardEvent {
   type: CardEventType;
