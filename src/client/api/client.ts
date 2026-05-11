@@ -93,6 +93,14 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return (await res.json()) as T;
 }
 
+// Bridge API wraps array responses in a named key (e.g. { cards: [] }).
+// This helper unwraps them, falling back to the raw response if it's already an array.
+function unwrapArray<T>(data: unknown, key: string): T[] {
+  if (Array.isArray(data)) return data as T[];
+  if (data && typeof data === 'object' && key in data) return (data as Record<string, unknown>)[key] as T[];
+  return [];
+}
+
 function withQuery(path: string, filter?: CardFilter): string {
   if (!filter) {
     return path;
@@ -129,8 +137,9 @@ const auth = {
 };
 
 const agents = {
-  list(): Promise<Agent[]> {
-    return apiFetch<Agent[]>('/api/v1/agents');
+  async list(): Promise<Agent[]> {
+    const data = await apiFetch<unknown>('/api/v1/agents');
+    return unwrapArray<Agent>(data, 'agents');
   },
 
   get(name: string): Promise<Agent> {
@@ -152,8 +161,9 @@ const cards = {
     });
   },
 
-  list(filter?: CardFilter): Promise<Card[]> {
-    return apiFetch<Card[]>(withQuery('/api/v1/cards', filter));
+  async list(filter?: CardFilter): Promise<Card[]> {
+    const data = await apiFetch<unknown>(withQuery('/api/v1/cards', filter));
+    return unwrapArray<Card>(data, 'cards');
   },
 
   get(id: string): Promise<CardDetail> {
@@ -187,8 +197,9 @@ const cards = {
 };
 
 const comments = {
-  list(cardId: string): Promise<CardComment[]> {
-    return apiFetch<CardComment[]>(`/api/v1/cards/${encodeURIComponent(cardId)}/comments`);
+  async list(cardId: string): Promise<CardComment[]> {
+    const data = await apiFetch<unknown>(`/api/v1/cards/${encodeURIComponent(cardId)}/comments`);
+    return unwrapArray<CardComment>(data, 'comments');
   },
 
   add(cardId: string, content: string): Promise<CardComment> {
@@ -218,8 +229,9 @@ const labels = {
 };
 
 const checkpoints = {
-  list(cardId: string): Promise<Checkpoint[]> {
-    return apiFetch<Checkpoint[]>(`/api/v1/cards/${encodeURIComponent(cardId)}/checkpoints`);
+  async list(cardId: string): Promise<Checkpoint[]> {
+    const data = await apiFetch<unknown>(`/api/v1/cards/${encodeURIComponent(cardId)}/checkpoints`);
+    return unwrapArray<Checkpoint>(data, 'checkpoints');
   },
 
   create(cardId: string, name?: string): Promise<Checkpoint> {
