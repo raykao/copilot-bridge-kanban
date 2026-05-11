@@ -29,7 +29,7 @@ docker compose up --build -d
 3. Create the first login:
 
 ```bash
-docker compose exec kanban node packages/server/dist/cli.js user add admin your-password
+docker compose exec kanban node dist/server/cli.js user add admin your-password
 ```
 
 4. Open <http://localhost:3000>.
@@ -64,12 +64,20 @@ The container exposes `GET /api/health` for readiness checks and persists SQLite
 
 ## CLI user management
 
-The production image includes a small user-management CLI:
+In development:
 
 ```bash
-node packages/server/dist/cli.js user add <username> <password>
-node packages/server/dist/cli.js user list
-node packages/server/dist/cli.js user delete <username>
+npm run cli -- add --username <name> --password <password>
+npm run cli -- list
+npm run cli -- delete --username <name>
+```
+
+In the Docker container:
+
+```bash
+node dist/server/cli.js user add <username> <password>
+node dist/server/cli.js user list
+node dist/server/cli.js user delete <username>
 ```
 
 ## Development setup
@@ -78,24 +86,33 @@ node packages/server/dist/cli.js user delete <username>
 git clone https://github.com/raykao/copilot-bridge-kanban.git
 cd copilot-bridge-kanban
 npm install
+
+export BRIDGE_API_URL=http://localhost:7878
+export BRIDGE_API_KEY=your-key
+export SESSION_SECRET=dev-secret
+
 npm run dev
 ```
+
+A single process serves both the Vite HMR client and the Fastify API on port 3000.
 
 ## Verification
 
 ```bash
-cd packages/server && npx tsc --noEmit && npx vitest run
-cd ../client && npx tsc --noEmit && npx vite build
+npm run lint    # type-check server and client
+npm test        # run vitest
+npm run build   # build server (tsc) and client (vite)
 ```
 
 ## Architecture
 
-This monorepo uses npm workspaces:
+Single-package layout:
 
-- `packages/server`: Fastify 5 API server, auth, bridge proxy, preferences, SQLite, and static asset hosting
-- `packages/client`: React 19 SPA built with Vite
+- `src/server/`: Fastify 5 API server, auth, bridge proxy, preferences, SQLite
+- `src/client/`: React 19 SPA built with Vite
+- `src/cli/`: User management CLI
 
-In production, the server serves `packages/client/dist` directly and proxies `/api/v1/*` traffic to copilot-bridge while keeping the bridge API key on the server.
+In development, Vite runs in middleware mode inside Fastify via `@fastify/middie`, so HMR and API share port 3000. In production, Fastify serves the pre-built SPA from `dist/client/` via `@fastify/static`.
 
 ## Links
 
