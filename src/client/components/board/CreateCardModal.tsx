@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/api/client';
@@ -59,6 +59,9 @@ export function CreateCardModal({ open, onOpenChange }: CreateCardModalProps) {
     },
   });
 
+  const mutationRef = useRef(createCardMutation);
+  mutationRef.current = createCardMutation;
+
   useEffect(() => {
     if (!open) {
       setTitle('');
@@ -67,9 +70,9 @@ export function CreateCardModal({ open, onOpenChange }: CreateCardModalProps) {
       setLabels('');
       setTitleError(null);
       setSubmitError(null);
-      createCardMutation.reset();
+      mutationRef.current.reset();
     }
-  }, [createCardMutation, open]);
+  }, [open]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
