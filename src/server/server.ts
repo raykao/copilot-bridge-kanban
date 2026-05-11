@@ -17,21 +17,28 @@ export async function createServer(config: AppConfig): Promise<FastifyInstance> 
   app.get('/healthz', healthHandler);
   app.get('/api/health', healthHandler);
 
-  const clientDist = path.resolve(import.meta.dirname, '../../dist/client');
-  if (fs.existsSync(clientDist)) {
-    await app.register(fastifyStatic, {
-      root: clientDist,
-      prefix: '/',
-      wildcard: false,
-    });
+  const isProduction = process.env.NODE_ENV !== 'development';
 
-    app.setNotFoundHandler(async (request, reply) => {
-      if (request.url.startsWith('/api/')) {
-        return reply.status(404).send({ error: 'Not found' });
-      }
+  if (isProduction) {
+    const clientDist = path.resolve(import.meta.dirname, '../../dist/client');
+    if (fs.existsSync(clientDist)) {
+      await app.register(fastifyStatic, {
+        root: clientDist,
+        prefix: '/',
+        wildcard: false,
+      });
 
-      return reply.sendFile('index.html');
-    });
+      app.setNotFoundHandler(async (request, reply) => {
+        if (request.url.startsWith('/api/')) {
+          return reply.status(404).send({ error: 'Not found' });
+        }
+
+        return reply.sendFile('index.html');
+      });
+    }
+  } else {
+    const { registerViteDevMiddleware } = await import('./dev.js');
+    await registerViteDevMiddleware(app);
   }
 
   return app;
