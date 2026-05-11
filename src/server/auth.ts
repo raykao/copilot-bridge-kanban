@@ -108,10 +108,12 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
 
     const user = await verifyPassword(db, username, password);
     if (!user) {
+      request.log.warn({ username }, 'login failed: invalid credentials');
       return reply.status(401).send({ error: 'Invalid credentials' });
     }
 
     const sessionId = createSession(db, user.id);
+    request.log.info({ username, userId: user.id }, 'login successful');
 
     reply.setCookie(COOKIE_NAME, sessionId, {
       path: '/',
@@ -129,6 +131,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: Database.Database):
     if (sessionId) {
       deleteSession(db, sessionId);
       reply.clearCookie(COOKIE_NAME, { path: '/' });
+      request.log.info({ userId: request.user?.id }, 'logout');
     }
 
     return reply.send({ ok: true });
@@ -154,11 +157,13 @@ export function registerSessionMiddleware(app: FastifyInstance, db: Database.Dat
 
     const sessionId = request.cookies[COOKIE_NAME];
     if (!sessionId) {
+      request.log.debug({ url: requestPath }, 'rejected: no session cookie');
       return reply.status(401).send({ error: 'Not authenticated' });
     }
 
     const user = getSessionUser(db, sessionId);
     if (!user) {
+      request.log.debug({ url: requestPath }, 'rejected: session expired or invalid');
       reply.clearCookie(COOKIE_NAME, { path: '/' });
       return reply.status(401).send({ error: 'Session expired' });
     }

@@ -13,6 +13,7 @@ const config: AppConfig = {
   bridgeApiKey: 'test-key',
   sessionSecret: 'secret',
   dbPath: ':memory:',
+  logLevel: 'silent',
 };
 
 const apps: Array<{ db: Database.Database; server: FastifyInstance }> = [];

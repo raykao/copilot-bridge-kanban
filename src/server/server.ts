@@ -6,7 +6,22 @@ import path from 'node:path';
 import type { AppConfig } from './config.js';
 
 export async function createServer(config: AppConfig): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+  const app = Fastify({
+    logger: {
+      level: config.logLevel,
+      transport:
+        process.env.NODE_ENV === 'development'
+          ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'HH:MM:ss.l' } }
+          : undefined,
+    },
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    request.log.info(
+      { method: request.method, url: request.url, status: reply.statusCode, ms: Math.round(reply.elapsedTime) },
+      'request completed',
+    );
+  });
 
   await app.register(fastifyCookie, {
     secret: config.sessionSecret,

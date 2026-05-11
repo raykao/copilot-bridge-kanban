@@ -6,6 +6,8 @@ export function registerBridgeProxy(app: FastifyInstance, config: AppConfig): vo
     const bridgePath = request.url.replace(/^\/api/, '');
     const bridgeUrl = `${config.bridgeApiUrl}${bridgePath}`;
 
+    request.log.debug({ bridgeUrl, method: request.method }, 'proxying to bridge API');
+
     const headers: Record<string, string> = {
       authorization: `Bearer ${config.bridgeApiKey}`,
     };
@@ -32,6 +34,7 @@ export function registerBridgeProxy(app: FastifyInstance, config: AppConfig): vo
       });
 
       if (isSSE && response.ok && response.body) {
+        request.log.debug('streaming SSE response from bridge');
         reply.hijack();
         reply.raw.writeHead(200, {
           'content-type': 'text/event-stream',
@@ -80,6 +83,7 @@ export function registerBridgeProxy(app: FastifyInstance, config: AppConfig): vo
       reply.status(response.status).header('content-type', contentType).send(body);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Bridge proxy error';
+      request.log.error({ err, bridgeUrl }, 'bridge proxy error');
       reply.status(502).send({ error: 'Bridge unavailable', detail: message });
     }
   });

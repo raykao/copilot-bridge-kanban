@@ -8,6 +8,7 @@ const config: AppConfig = {
   bridgeApiKey: 'test-key',
   sessionSecret: 'secret',
   dbPath: ':memory:',
+  logLevel: 'silent',
 };
 
 const servers: Array<Awaited<ReturnType<typeof createServer>>> = [];

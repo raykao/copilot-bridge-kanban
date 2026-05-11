@@ -21,6 +21,7 @@ describe('loadConfig', () => {
       bridgeApiKey: 'test-key',
       sessionSecret: 'secret',
       dbPath: './data/test.db',
+      logLevel: 'info',
     });
   });
 
@@ -37,6 +38,7 @@ describe('loadConfig', () => {
       bridgeApiKey: 'test-key',
       sessionSecret: 'secret',
       dbPath: './data/kanban.db',
+      logLevel: 'info',
     });
   });
 

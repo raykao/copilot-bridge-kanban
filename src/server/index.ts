@@ -17,10 +17,13 @@ async function main(): Promise<void> {
   registerPreferencesRoutes(server, db);
 
   await server.listen({ host: '0.0.0.0', port: config.port });
-  console.log(`Kanban UI server listening on port ${config.port}`);
+  server.log.info(
+    { port: config.port, logLevel: config.logLevel, dbPath: config.dbPath, bridgeApiUrl: config.bridgeApiUrl },
+    'kanban server started',
+  );
 
   const shutdown = async (): Promise<void> => {
-    console.log('Shutting down...');
+    server.log.info('shutting down');
     await server.close();
     db.close();
     process.exit(0);
