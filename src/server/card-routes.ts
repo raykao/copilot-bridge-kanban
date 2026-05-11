@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
+import type { AppConfig } from './config.js';
 import {
   createCard,
   getCard,
@@ -15,8 +16,9 @@ import {
   listRuns,
   type CardFilter,
 } from './cards.js';
+import { dispatchToBridge } from './dispatch.js';
 
-export function registerCardRoutes(app: FastifyInstance, db: Database.Database): void {
+export function registerCardRoutes(app: FastifyInstance, db: Database.Database, config?: AppConfig): void {
   // -----------------------------------------------------------------------
   // Cards
   // -----------------------------------------------------------------------
@@ -63,14 +65,31 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database):
       addLabels(db, card.id, body.labels as string[]);
     }
 
-    // If agent assigned, insert description as first comment
+    // If agent assigned, insert description as first comment and dispatch
     if (card.agent_bot && card.description) {
-      addComment(db, {
+      const comment = addComment(db, {
         card_id: card.id,
         author_kind: 'human',
         author_id: userId,
         content: card.description,
       });
+
+      if (config) {
+        const run = createRun(db, {
+          card_id: card.id,
+          agent_name: card.agent_bot,
+          input_comment_id: comment.id,
+        });
+
+        dispatchToBridge(config, db, {
+          bot: card.agent_bot,
+          prompt: card.description,
+          cardId: card.id,
+          runId: run.id,
+        }).catch((err) => {
+          app.log.error({ err, cardId: card.id, runId: run.id }, 'dispatch failed');
+        });
+      }
     }
 
     return reply.status(201).send({
@@ -171,7 +190,18 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database):
         input_comment_id: comment.id,
       });
       run_id = run.id;
-      // TODO (p2-0): dispatch to bridge agent here
+
+      if (config) {
+        // Fire-and-forget dispatch -- don't block the response
+        dispatchToBridge(config, db, {
+          bot: card.agent_bot,
+          prompt: body.content as string,
+          cardId: id,
+          runId: run.id,
+        }).catch((err) => {
+          app.log.error({ err, cardId: id, runId: run.id }, 'dispatch failed');
+        });
+      }
     }
 
     return reply.status(201).send({ comment, run_id });

@@ -1,6 +1,7 @@
 import { loadConfig } from './config.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { registerAuthRoutes, registerSessionMiddleware } from './auth.js';
+import { registerAgentCallbackRoutes } from './agent-callback.js';
 import { registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerBridgeProxy } from './proxy.js';
@@ -14,7 +15,8 @@ async function main(): Promise<void> {
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
   registerAuthRoutes(server, db);
-  registerCardRoutes(server, db);
+  registerAgentCallbackRoutes(server, db, config);
+  registerCardRoutes(server, db, config);
   registerBridgeProxy(server, config);
   registerPreferencesRoutes(server, db);
 
