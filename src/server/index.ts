@@ -6,17 +6,21 @@ import { registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerBridgeProxy } from './proxy.js';
 import { createServer } from './server.js';
+import { SseManager } from './sse.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const db = createDatabase(config.dbPath);
   initializeSchema(db);
 
+  const sseManager = new SseManager();
+  sseManager.startHeartbeat();
+
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
   registerAuthRoutes(server, db);
-  registerAgentCallbackRoutes(server, db, config);
-  registerCardRoutes(server, db, config);
+  registerAgentCallbackRoutes(server, db, config, sseManager);
+  registerCardRoutes(server, db, config, sseManager);
   registerBridgeProxy(server, config);
   registerPreferencesRoutes(server, db);
 
@@ -28,6 +32,7 @@ async function main(): Promise<void> {
 
   const shutdown = async (): Promise<void> => {
     server.log.info('shutting down');
+    sseManager.shutdown();
     await server.close();
     db.close();
     process.exit(0);

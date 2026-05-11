@@ -17,8 +17,9 @@ import {
   type CardFilter,
 } from './cards.js';
 import { dispatchToBridge } from './dispatch.js';
+import type { SseManager } from './sse.js';
 
-export function registerCardRoutes(app: FastifyInstance, db: Database.Database, config?: AppConfig): void {
+export function registerCardRoutes(app: FastifyInstance, db: Database.Database, config?: AppConfig, sseManager?: SseManager): void {
   // -----------------------------------------------------------------------
   // Cards
   // -----------------------------------------------------------------------
@@ -97,6 +98,35 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     });
   });
 
+  // -----------------------------------------------------------------------
+  // SSE events
+  // -----------------------------------------------------------------------
+
+  app.get('/api/cards/:id/events', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!getCard(db, id)) {
+      return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    if (!sseManager) {
+      return reply.status(503).send({ error: 'SSE not available' });
+    }
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    sseManager.subscribe(id, reply.raw);
+
+    // Send initial connection event
+    reply.raw.write(`event: connected\ndata: ${JSON.stringify({ card_id: id })}\n\n`);
+
+    // Fastify must not send its own response after we hijack the socket
+    reply.hijack();
+  });
+
   app.get('/api/cards/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
     const card = getCard(db, id);
@@ -137,7 +167,9 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     }
 
     const updated = updateCard(db, id, patch);
-    return reply.send({ card: { ...updated, labels: getLabels(db, id) } });
+    const result = { ...updated, labels: getLabels(db, id) };
+    sseManager?.emit(id, 'card.updated', result);
+    return reply.send({ card: result });
   });
 
   app.delete('/api/cards/:id', async (request, reply) => {
@@ -181,6 +213,8 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
       content: body.content as string,
     });
 
+    sseManager?.emit(id, 'comment.created', comment);
+
     // If card has an assigned agent, create a run for dispatch
     let run_id: string | undefined;
     if (card.agent_bot) {
@@ -220,7 +254,9 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     }
 
     addLabels(db, id, body.labels);
-    return reply.send({ labels: getLabels(db, id) });
+    const labels = getLabels(db, id);
+    sseManager?.emit(id, 'labels.updated', { card_id: id, labels });
+    return reply.send({ labels });
   });
 
   app.delete('/api/cards/:id/labels/:label', async (request, reply) => {
@@ -231,6 +267,7 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     }
 
     removeLabel(db, id, label);
+    sseManager?.emit(id, 'labels.updated', { card_id: id, labels: getLabels(db, id) });
     return reply.status(204).send();
   });
 

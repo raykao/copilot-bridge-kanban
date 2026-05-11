@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { AppConfig } from './config.js';
 import { addComment, getCard, updateRun, listRuns } from './cards.js';
+import type { SseManager } from './sse.js';
 
 /**
  * Internal callback routes used by copilot-bridge to deliver agent responses.
@@ -11,6 +12,7 @@ export function registerAgentCallbackRoutes(
   app: FastifyInstance,
   db: Database.Database,
   config: AppConfig,
+  sseManager?: SseManager,
 ): void {
   app.post('/api/internal/cards/:id/agent-response', async (request, reply) => {
     const authHeader = request.headers.authorization;
@@ -43,6 +45,8 @@ export function registerAgentCallbackRoutes(
       run_id: body.run_id,
     });
 
+    sseManager?.emit(id, 'comment.created', comment);
+
     // Update run status if run_id provided
     if (body.run_id) {
       const status = body.status ?? 'completed';
@@ -54,16 +58,19 @@ export function registerAgentCallbackRoutes(
           : {}),
         ...(body.error ? { error: body.error } : {}),
       });
+      sseManager?.emit(id, 'run.status', { run_id: body.run_id, status });
     } else {
       // If no run_id, find the latest running run for this card and complete it
       const runs = listRuns(db, id);
       const activeRun = runs.find((r) => r.status === 'running' || r.status === 'created');
       if (activeRun) {
+        const status = body.status ?? 'completed';
         updateRun(db, activeRun.id, {
-          status: body.status ?? 'completed',
+          status,
           bridge_session_id: body.session_id ?? null,
           finished_at: new Date().toISOString(),
         });
+        sseManager?.emit(id, 'run.status', { run_id: activeRun.id, status });
       }
     }
 
