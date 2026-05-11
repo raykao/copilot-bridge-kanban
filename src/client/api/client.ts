@@ -93,6 +93,11 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return (await res.json()) as T;
 }
 
+// Ensure card.labels is always an array (bridge may omit it).
+function normalizeCard<T extends Partial<Card>>(card: T): T {
+  return { ...card, labels: (card as any).labels ?? [] };
+}
+
 // Bridge API wraps array responses in a named key (e.g. { cards: [] }).
 // This helper unwraps them, falling back to the raw response if it's already an array.
 function unwrapArray<T>(data: unknown, key: string): T[] {
@@ -148,45 +153,50 @@ const agents = {
 };
 
 const cards = {
-  create(card: NewCard): Promise<Card> {
+  async create(card: NewCard): Promise<Card> {
     const normalizedCard = {
       ...card,
       agent: card.agent ?? card.agent_bot,
       agent_bot: card.agent_bot ?? card.agent,
     };
 
-    return apiFetch<Card>('/api/v1/cards', {
+    const result = await apiFetch<{ card: Card }>('/api/v1/cards', {
       method: 'POST',
       body: JSON.stringify(normalizedCard),
     });
+    return normalizeCard(result.card);
   },
 
   async list(filter?: CardFilter): Promise<Card[]> {
     const data = await apiFetch<unknown>(withQuery('/api/v1/cards', filter));
-    return unwrapArray<Card>(data, 'cards');
+    return unwrapArray<Card>(data, 'cards').map(normalizeCard);
   },
 
-  get(id: string): Promise<CardDetail> {
-    return apiFetch<CardDetail>(`/api/v1/cards/${encodeURIComponent(id)}`);
+  async get(id: string): Promise<CardDetail> {
+    const detail = await apiFetch<CardDetail>(`/api/v1/cards/${encodeURIComponent(id)}`);
+    return { ...detail, card: normalizeCard(detail.card) };
   },
 
-  update(id: string, patch: CardUpdate): Promise<Card> {
-    return apiFetch<Card>(`/api/v1/cards/${encodeURIComponent(id)}`, {
+  async update(id: string, patch: CardUpdate): Promise<Card> {
+    const result = await apiFetch<{ card: Card }>(`/api/v1/cards/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     });
+    return normalizeCard(result.card);
   },
 
-  archive(id: string): Promise<Card> {
-    return apiFetch<Card>(`/api/v1/cards/${encodeURIComponent(id)}/archive`, {
+  async archive(id: string): Promise<Card> {
+    const result = await apiFetch<{ card: Card }>(`/api/v1/cards/${encodeURIComponent(id)}/archive`, {
       method: 'POST',
     });
+    return normalizeCard(result.card);
   },
 
-  abort(id: string): Promise<Card> {
-    return apiFetch<Card>(`/api/v1/cards/${encodeURIComponent(id)}/abort`, {
+  async abort(id: string): Promise<Card> {
+    const result = await apiFetch<{ card: Card }>(`/api/v1/cards/${encodeURIComponent(id)}/abort`, {
       method: 'POST',
     });
+    return normalizeCard(result.card);
   },
 
   delete(id: string): Promise<OkResponse> {

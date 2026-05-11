@@ -126,8 +126,8 @@ function CardPreviewBody({ card, className, onClick, onKeyDown, style, draggable
       </CardHeader>
       <CardContent className="mt-auto space-y-3">
         <div className="flex flex-wrap gap-1.5">
-          {card.labels.length > 0 ? (
-            card.labels.slice(0, 3).map((label) => (
+          {(card.labels ?? []).length > 0 ? (
+            (card.labels ?? []).slice(0, 3).map((label) => (
               <span
                 className={cn(
                   'inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[11px] font-medium',
