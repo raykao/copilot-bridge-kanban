@@ -15,6 +15,7 @@ import {
   createRun,
   listRuns,
   createCheckpoint,
+  getCheckpoint,
   listCheckpoints,
   deleteCheckpoint,
   type CardFilter,
@@ -320,6 +321,11 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     const { id, checkpointId } = request.params as { id: string; checkpointId: string };
     if (!getCard(db, id)) {
       return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    const checkpoint = getCheckpoint(db, checkpointId);
+    if (!checkpoint || checkpoint.card_id !== id) {
+      return reply.status(404).send({ error: 'Checkpoint not found' });
     }
 
     deleteCheckpoint(db, checkpointId);

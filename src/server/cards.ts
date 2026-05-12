@@ -324,6 +324,11 @@ export function listCheckpoints(db: Database.Database, cardId: string): Checkpoi
   return db.prepare('SELECT * FROM checkpoints WHERE card_id = ? ORDER BY created_at ASC').all(cardId) as Checkpoint[];
 }
 
+export function getCheckpoint(db: Database.Database, id: string): Checkpoint | null {
+  const row = db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(id) as Checkpoint | undefined;
+  return row ?? null;
+}
+
 export function deleteCheckpoint(db: Database.Database, id: string): void {
   db.prepare('DELETE FROM checkpoints WHERE id = ?').run(id);
 }

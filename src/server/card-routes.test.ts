@@ -387,6 +387,45 @@ describe('checkpoint routes', () => {
     expect(JSON.parse(listRes.body).checkpoints).toEqual([]);
   });
 
+  it('returns 404 and preserves checkpoint for cross-card delete', async () => {
+    const { server, sessionCookie } = await createTestApp();
+
+    const cardARes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Card A' },
+    });
+    const { card: cardA } = JSON.parse(cardARes.body);
+
+    const cardBRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Card B' },
+    });
+    const { card: cardB } = JSON.parse(cardBRes.body);
+
+    const checkpointRes = await server.inject({
+      method: 'POST', url: `/api/cards/${cardA.id}/checkpoints`,
+      headers: { cookie: sessionCookie },
+      payload: { name: 'belongs to A' },
+    });
+    const checkpoint = JSON.parse(checkpointRes.body);
+
+    const deleteRes = await server.inject({
+      method: 'DELETE', url: `/api/cards/${cardB.id}/checkpoints/${checkpoint.id}`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(deleteRes.statusCode).toBe(404);
+
+    const listRes = await server.inject({
+      method: 'GET', url: `/api/cards/${cardA.id}/checkpoints`,
+      headers: { cookie: sessionCookie },
+    });
+    const { checkpoints } = JSON.parse(listRes.body);
+    expect(checkpoints).toHaveLength(1);
+    expect(checkpoints[0].id).toBe(checkpoint.id);
+  });
+
   it('returns 404 for checkpoint routes with nonexistent card', async () => {
     const { server, sessionCookie } = await createTestApp();
 
