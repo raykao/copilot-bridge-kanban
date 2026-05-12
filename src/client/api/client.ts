@@ -147,12 +147,12 @@ const auth = {
 
 const agents = {
   async list(): Promise<Agent[]> {
-    const data = await apiFetch<unknown>('/api/v1/agents');
+    const data = await apiFetch<unknown>('/api/agents');
     return unwrapArray<Agent>(data, 'agents');
   },
 
   get(name: string): Promise<Agent> {
-    return apiFetch<Agent>(`/api/v1/agents/${encodeURIComponent(name)}`);
+    return apiFetch<Agent>(`/api/agents/${encodeURIComponent(name)}`);
   },
 };
 
@@ -245,12 +245,12 @@ const labels = {
 
 const checkpoints = {
   async list(cardId: string): Promise<Checkpoint[]> {
-    const data = await apiFetch<unknown>(`/api/v1/cards/${encodeURIComponent(cardId)}/checkpoints`);
+    const data = await apiFetch<unknown>(`/api/cards/${encodeURIComponent(cardId)}/checkpoints`);
     return unwrapArray<Checkpoint>(data, 'checkpoints');
   },
 
   create(cardId: string, name?: string): Promise<Checkpoint> {
-    return apiFetch<Checkpoint>(`/api/v1/cards/${encodeURIComponent(cardId)}/checkpoints`, {
+    return apiFetch<Checkpoint>(`/api/cards/${encodeURIComponent(cardId)}/checkpoints`, {
       method: 'POST',
       body: JSON.stringify(name ? { name } : {}),
     });
@@ -258,7 +258,7 @@ const checkpoints = {
 
   delete(cardId: string, checkpointId: string): Promise<OkResponse> {
     return apiFetch<OkResponse>(
-      `/api/v1/cards/${encodeURIComponent(cardId)}/checkpoints/${encodeURIComponent(checkpointId)}`,
+      `/api/cards/${encodeURIComponent(cardId)}/checkpoints/${encodeURIComponent(checkpointId)}`,
       {
         method: 'DELETE',
       },
@@ -286,7 +286,7 @@ export function subscribeToCardEvents(
   onEvent: (event: CardEvent) => void,
   onError?: (error: Event) => void,
 ): EventSource {
-  const es = new EventSource(`/api/v1/cards/${cardId}/events`, { withCredentials: true });
+  const es = new EventSource(`/api/cards/${cardId}/events`, { withCredentials: true });
 
   es.onmessage = (e) => {
     try {
