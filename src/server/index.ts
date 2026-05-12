@@ -5,7 +5,6 @@ import { registerAgentCallbackRoutes } from './agent-callback.js';
 import { registerAgentRoutes } from './agents.js';
 import { registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
-import { registerBridgeProxy } from './proxy.js';
 import { createServer } from './server.js';
 import { SseManager } from './sse.js';
 
@@ -23,7 +22,6 @@ async function main(): Promise<void> {
   registerAgentCallbackRoutes(server, db, config, sseManager);
   registerCardRoutes(server, db, config, sseManager);
   registerAgentRoutes(server, config);
-  registerBridgeProxy(server, config);
   registerPreferencesRoutes(server, db);
 
   await server.listen({ host: '0.0.0.0', port: config.port });

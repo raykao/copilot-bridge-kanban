@@ -12,8 +12,8 @@ export function registerAgentRoutes(app: FastifyInstance, config: AppConfig): vo
         .header('content-type', res.headers.get('content-type') ?? 'application/json')
         .send(body);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Bridge proxy error';
-      request.log.error({ err }, 'agent proxy error');
+      const message = err instanceof Error ? err.message : 'Bridge request error';
+      request.log.error({ err }, 'agent bridge request error');
       return reply.status(502).send({ error: 'Bridge unavailable', detail: message });
     }
   });
@@ -30,8 +30,8 @@ export function registerAgentRoutes(app: FastifyInstance, config: AppConfig): vo
         .header('content-type', res.headers.get('content-type') ?? 'application/json')
         .send(body);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Bridge proxy error';
-      request.log.error({ err }, 'agent proxy error');
+      const message = err instanceof Error ? err.message : 'Bridge request error';
+      request.log.error({ err }, 'agent bridge request error');
       return reply.status(502).send({ error: 'Bridge unavailable', detail: message });
     }
   });
