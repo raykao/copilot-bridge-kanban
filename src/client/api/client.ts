@@ -90,6 +90,10 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     throw new ApiError(res.status, res.statusText, body);
   }
 
+  if (res.status === 204) {
+    return undefined as T;
+  }
+
   return (await res.json()) as T;
 }
 
@@ -143,42 +147,39 @@ const auth = {
 
 const agents = {
   async list(): Promise<Agent[]> {
-    const data = await apiFetch<unknown>('/api/v1/agents');
+    const data = await apiFetch<unknown>('/api/agents');
     return unwrapArray<Agent>(data, 'agents');
   },
 
   get(name: string): Promise<Agent> {
-    return apiFetch<Agent>(`/api/v1/agents/${encodeURIComponent(name)}`);
+    return apiFetch<Agent>(`/api/agents/${encodeURIComponent(name)}`);
   },
 };
 
 const cards = {
   async create(card: NewCard): Promise<Card> {
-    const normalizedCard = {
-      ...card,
-      agent: card.agent ?? card.agent_bot,
-      agent_bot: card.agent_bot ?? card.agent,
-    };
-
-    const result = await apiFetch<{ card: Card }>('/api/v1/cards', {
+    const result = await apiFetch<{ card: Card }>('/api/cards', {
       method: 'POST',
-      body: JSON.stringify(normalizedCard),
+      body: JSON.stringify({
+        ...card,
+        agent: card.agent ?? card.agent_bot,
+      }),
     });
     return normalizeCard(result.card);
   },
 
   async list(filter?: CardFilter): Promise<Card[]> {
-    const data = await apiFetch<unknown>(withQuery('/api/v1/cards', filter));
+    const data = await apiFetch<{ cards: Card[] }>(withQuery('/api/cards', filter));
     return unwrapArray<Card>(data, 'cards').map(normalizeCard);
   },
 
   async get(id: string): Promise<CardDetail> {
-    const detail = await apiFetch<CardDetail>(`/api/v1/cards/${encodeURIComponent(id)}`);
+    const detail = await apiFetch<CardDetail>(`/api/cards/${encodeURIComponent(id)}`);
     return { ...detail, card: normalizeCard(detail.card) };
   },
 
   async update(id: string, patch: CardUpdate): Promise<Card> {
-    const result = await apiFetch<{ card: Card }>(`/api/v1/cards/${encodeURIComponent(id)}`, {
+    const result = await apiFetch<{ card: Card }>(`/api/cards/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     });
@@ -186,21 +187,23 @@ const cards = {
   },
 
   async archive(id: string): Promise<Card> {
-    const result = await apiFetch<{ card: Card }>(`/api/v1/cards/${encodeURIComponent(id)}/archive`, {
-      method: 'POST',
+    const result = await apiFetch<{ card: Card }>(`/api/cards/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'archived' }),
     });
     return normalizeCard(result.card);
   },
 
   async abort(id: string): Promise<Card> {
-    const result = await apiFetch<{ card: Card }>(`/api/v1/cards/${encodeURIComponent(id)}/abort`, {
-      method: 'POST',
+    const result = await apiFetch<{ card: Card }>(`/api/cards/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'done' }),
     });
     return normalizeCard(result.card);
   },
 
-  delete(id: string): Promise<OkResponse> {
-    return apiFetch<OkResponse>(`/api/v1/cards/${encodeURIComponent(id)}`, {
+  async delete(id: string): Promise<void> {
+    await apiFetch<void>(`/api/cards/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
   },
@@ -208,29 +211,31 @@ const cards = {
 
 const comments = {
   async list(cardId: string): Promise<CardComment[]> {
-    const data = await apiFetch<unknown>(`/api/v1/cards/${encodeURIComponent(cardId)}/comments`);
+    const data = await apiFetch<{ comments: CardComment[] }>(`/api/cards/${encodeURIComponent(cardId)}/comments`);
     return unwrapArray<CardComment>(data, 'comments');
   },
 
-  add(cardId: string, content: string): Promise<CardComment> {
-    return apiFetch<CardComment>(`/api/v1/cards/${encodeURIComponent(cardId)}/comments`, {
+  async add(cardId: string, content: string): Promise<CardComment> {
+    const result = await apiFetch<{ comment: CardComment }>(`/api/cards/${encodeURIComponent(cardId)}/comments`, {
       method: 'POST',
       body: JSON.stringify({ content }),
     });
+    return result.comment;
   },
 };
 
 const labels = {
-  add(cardId: string, labelValues: string[]): Promise<Card> {
-    return apiFetch<Card>(`/api/v1/cards/${encodeURIComponent(cardId)}/labels`, {
+  async add(cardId: string, labelValues: string[]): Promise<string[]> {
+    const result = await apiFetch<{ labels: string[] }>(`/api/cards/${encodeURIComponent(cardId)}/labels`, {
       method: 'POST',
       body: JSON.stringify({ labels: labelValues }),
     });
+    return result.labels;
   },
 
-  remove(cardId: string, label: string): Promise<Card> {
-    return apiFetch<Card>(
-      `/api/v1/cards/${encodeURIComponent(cardId)}/labels/${encodeURIComponent(label)}`,
+  async remove(cardId: string, label: string): Promise<void> {
+    await apiFetch<void>(
+      `/api/cards/${encodeURIComponent(cardId)}/labels/${encodeURIComponent(label)}`,
       {
         method: 'DELETE',
       },
@@ -240,12 +245,12 @@ const labels = {
 
 const checkpoints = {
   async list(cardId: string): Promise<Checkpoint[]> {
-    const data = await apiFetch<unknown>(`/api/v1/cards/${encodeURIComponent(cardId)}/checkpoints`);
+    const data = await apiFetch<unknown>(`/api/cards/${encodeURIComponent(cardId)}/checkpoints`);
     return unwrapArray<Checkpoint>(data, 'checkpoints');
   },
 
   create(cardId: string, name?: string): Promise<Checkpoint> {
-    return apiFetch<Checkpoint>(`/api/v1/cards/${encodeURIComponent(cardId)}/checkpoints`, {
+    return apiFetch<Checkpoint>(`/api/cards/${encodeURIComponent(cardId)}/checkpoints`, {
       method: 'POST',
       body: JSON.stringify(name ? { name } : {}),
     });
@@ -253,7 +258,7 @@ const checkpoints = {
 
   delete(cardId: string, checkpointId: string): Promise<OkResponse> {
     return apiFetch<OkResponse>(
-      `/api/v1/cards/${encodeURIComponent(cardId)}/checkpoints/${encodeURIComponent(checkpointId)}`,
+      `/api/cards/${encodeURIComponent(cardId)}/checkpoints/${encodeURIComponent(checkpointId)}`,
       {
         method: 'DELETE',
       },
@@ -281,7 +286,7 @@ export function subscribeToCardEvents(
   onEvent: (event: CardEvent) => void,
   onError?: (error: Event) => void,
 ): EventSource {
-  const es = new EventSource(`/api/v1/cards/${cardId}/events`, { withCredentials: true });
+  const es = new EventSource(`/api/cards/${cardId}/events`, { withCredentials: true });
 
   es.onmessage = (e) => {
     try {

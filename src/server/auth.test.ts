@@ -19,6 +19,7 @@ const config: AppConfig = {
   port: 3000,
   bridgeApiUrl: 'http://localhost:7878',
   bridgeApiKey: 'test-key',
+  kanbanBaseUrl: 'http://localhost:3000',
   sessionSecret: 'secret',
   dbPath: ':memory:',
   logLevel: 'silent',

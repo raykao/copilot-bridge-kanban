@@ -8,7 +8,6 @@ export interface Agent {
 
 export interface Card {
   id: string;
-  channel_id: string;
   type: "work" | "chat";
   agent_bot: string | null;
   title: string;
@@ -57,11 +56,10 @@ export interface CardFilter {
 export interface Run {
   id: string;
   card_id: string;
-  session_id: string;
   agent_name: string;
-  status: "running" | "completed" | "failed" | "cancelled";
-  input: unknown;
-  output: unknown;
+  status: "created" | "running" | "completed" | "failed" | "cancelled";
+  bridge_session_id: string | null;
+  input_comment_id: string | null;
   error: string | null;
   created_at: string;
   finished_at: string | null;
