@@ -279,6 +279,138 @@ describe('label routes', () => {
   });
 });
 
+describe('checkpoint routes', () => {
+  it('returns checkpoint list', async () => {
+    const { server, sessionCookie } = await createTestApp();
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Checkpointed' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/checkpoints`,
+      headers: { cookie: sessionCookie },
+      payload: { name: 'first' },
+    });
+    await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/checkpoints`,
+      headers: { cookie: sessionCookie },
+      payload: { name: 'second' },
+    });
+
+    const listRes = await server.inject({
+      method: 'GET', url: `/api/cards/${card.id}/checkpoints`,
+      headers: { cookie: sessionCookie },
+    });
+
+    expect(listRes.statusCode).toBe(200);
+    const { checkpoints } = JSON.parse(listRes.body);
+    expect(checkpoints).toHaveLength(2);
+    expect(checkpoints.map((checkpoint: { name: string }) => checkpoint.name)).toEqual(['first', 'second']);
+  });
+
+  it('creates a checkpoint with a name', async () => {
+    const { server, sessionCookie } = await createTestApp();
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Named checkpoint' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const checkpointRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/checkpoints`,
+      headers: { cookie: sessionCookie },
+      payload: { name: 'snapshot' },
+    });
+
+    expect(checkpointRes.statusCode).toBe(201);
+    const checkpoint = JSON.parse(checkpointRes.body);
+    expect(checkpoint.card_id).toBe(card.id);
+    expect(checkpoint.name).toBe('snapshot');
+    expect(checkpoint.turn_index).toBe(0);
+  });
+
+  it('creates a checkpoint without a name', async () => {
+    const { server, sessionCookie } = await createTestApp();
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Unnamed checkpoint' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const checkpointRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/checkpoints`,
+      headers: { cookie: sessionCookie },
+      payload: {},
+    });
+
+    expect(checkpointRes.statusCode).toBe(201);
+    const checkpoint = JSON.parse(checkpointRes.body);
+    expect(checkpoint.card_id).toBe(card.id);
+    expect(checkpoint.name).toBeNull();
+  });
+
+  it('deletes a checkpoint', async () => {
+    const { server, sessionCookie } = await createTestApp();
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Delete checkpoint' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const checkpointRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/checkpoints`,
+      headers: { cookie: sessionCookie },
+      payload: { name: 'remove me' },
+    });
+    const checkpoint = JSON.parse(checkpointRes.body);
+
+    const deleteRes = await server.inject({
+      method: 'DELETE', url: `/api/cards/${card.id}/checkpoints/${checkpoint.id}`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(deleteRes.statusCode).toBe(204);
+
+    const listRes = await server.inject({
+      method: 'GET', url: `/api/cards/${card.id}/checkpoints`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(JSON.parse(listRes.body).checkpoints).toEqual([]);
+  });
+
+  it('returns 404 for checkpoint routes with nonexistent card', async () => {
+    const { server, sessionCookie } = await createTestApp();
+
+    const getRes = await server.inject({
+      method: 'GET', url: '/api/cards/nonexistent/checkpoints',
+      headers: { cookie: sessionCookie },
+    });
+    expect(getRes.statusCode).toBe(404);
+
+    const postRes = await server.inject({
+      method: 'POST', url: '/api/cards/nonexistent/checkpoints',
+      headers: { cookie: sessionCookie },
+      payload: { name: 'missing' },
+    });
+    expect(postRes.statusCode).toBe(404);
+
+    const deleteRes = await server.inject({
+      method: 'DELETE', url: '/api/cards/nonexistent/checkpoints/checkpoint-1',
+      headers: { cookie: sessionCookie },
+    });
+    expect(deleteRes.statusCode).toBe(404);
+  });
+});
+
 describe('card creation with agent', () => {
   it('inserts description as first comment when agent is assigned', async () => {
     const { server, sessionCookie } = await createTestApp();

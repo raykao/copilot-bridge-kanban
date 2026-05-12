@@ -14,6 +14,9 @@ import {
   listComments,
   createRun,
   listRuns,
+  createCheckpoint,
+  listCheckpoints,
+  deleteCheckpoint,
   type CardFilter,
 } from './cards.js';
 import { dispatchToBridge } from './dispatch.js';
@@ -282,5 +285,44 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     }
 
     return reply.send({ runs: listRuns(db, id) });
+  });
+
+  // -----------------------------------------------------------------------
+  // Checkpoints
+  // -----------------------------------------------------------------------
+
+  app.get('/api/cards/:id/checkpoints', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!getCard(db, id)) {
+      return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    return reply.send({ checkpoints: listCheckpoints(db, id) });
+  });
+
+  app.post('/api/cards/:id/checkpoints', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const userId = request.user!.id;
+    if (!getCard(db, id)) {
+      return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    const checkpoint = createCheckpoint(db, {
+      card_id: id,
+      created_by: userId,
+      name: (body.name as string) ?? undefined,
+    });
+    return reply.status(201).send(checkpoint);
+  });
+
+  app.delete('/api/cards/:id/checkpoints/:checkpointId', async (request, reply) => {
+    const { id, checkpointId } = request.params as { id: string; checkpointId: string };
+    if (!getCard(db, id)) {
+      return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    deleteCheckpoint(db, checkpointId);
+    return reply.status(204).send();
   });
 }
