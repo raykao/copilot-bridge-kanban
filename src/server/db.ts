@@ -43,6 +43,16 @@ export function initializeSchema(db: Database.Database): void {
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS agent_tokens (
+      id TEXT PRIMARY KEY,
+      agent_name TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tokens_name ON agent_tokens(agent_name);
+    CREATE INDEX IF NOT EXISTS idx_agent_tokens_hash ON agent_tokens(token_hash);
+
     CREATE TABLE IF NOT EXISTS cards (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL DEFAULT 'work',
