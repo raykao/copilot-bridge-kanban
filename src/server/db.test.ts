@@ -22,6 +22,7 @@ describe('database schema', () => {
       'card_comments',
       'card_labels',
       'cards',
+      'checkpoints',
       'preferences',
       'runs',
       'sessions',
@@ -32,6 +33,7 @@ describe('database schema', () => {
       'idx_card_labels_label',
       'idx_cards_agent_status',
       'idx_cards_status',
+      'idx_checkpoints_card',
       'idx_runs_card',
       'idx_runs_status',
       'idx_sessions_expires',
@@ -65,12 +67,18 @@ describe('database schema', () => {
        VALUES ('r1', 'c1', 'bob', 'created', ?)`,
     ).run(now);
 
-    // Delete card - cascades should remove labels, comments, runs
+    db.prepare(
+      `INSERT INTO checkpoints (id, card_id, created_by, created_at)
+       VALUES ('cp1', 'c1', 'user1', ?)`,
+    ).run(now);
+
+    // Delete card - cascades should remove labels, comments, runs, checkpoints
     db.prepare('DELETE FROM cards WHERE id = ?').run('c1');
 
     expect(db.prepare('SELECT COUNT(*) as c FROM card_labels').get()).toEqual({ c: 0 });
     expect(db.prepare('SELECT COUNT(*) as c FROM card_comments').get()).toEqual({ c: 0 });
     expect(db.prepare('SELECT COUNT(*) as c FROM runs').get()).toEqual({ c: 0 });
+    expect(db.prepare('SELECT COUNT(*) as c FROM checkpoints').get()).toEqual({ c: 0 });
 
     db.close();
   });

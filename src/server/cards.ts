@@ -74,6 +74,24 @@ export interface NewRun {
   input_comment_id?: string;
 }
 
+export interface Checkpoint {
+  id: string;
+  card_id: string;
+  name: string | null;
+  turn_index: number;
+  git_ref: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface NewCheckpoint {
+  card_id: string;
+  created_by: string;
+  name?: string;
+  turn_index?: number;
+  git_ref?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -168,7 +186,6 @@ export function updateCard(db: Database.Database, id: string, patch: Partial<Car
 
   for (const key of allowed) {
     if (key in patch) {
-      if (key === 'metadata') continue;
       sets.push(`${key} = ?`);
       params.push((patch as any)[key] ?? null);
     }
@@ -277,4 +294,36 @@ export function updateRun(db: Database.Database, id: string, patch: Partial<Run>
 
 export function listRuns(db: Database.Database, cardId: string): Run[] {
   return db.prepare('SELECT * FROM runs WHERE card_id = ? ORDER BY created_at ASC').all(cardId) as Run[];
+}
+
+// ---------------------------------------------------------------------------
+// Checkpoints
+// ---------------------------------------------------------------------------
+
+export function createCheckpoint(db: Database.Database, input: NewCheckpoint): Checkpoint {
+  const id = crypto.randomUUID();
+  const ts = now();
+
+  db.prepare(
+    `INSERT INTO checkpoints (id, card_id, name, turn_index, git_ref, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    input.card_id,
+    input.name ?? null,
+    input.turn_index ?? 0,
+    input.git_ref ?? null,
+    input.created_by,
+    ts,
+  );
+
+  return db.prepare('SELECT * FROM checkpoints WHERE id = ?').get(id) as Checkpoint;
+}
+
+export function listCheckpoints(db: Database.Database, cardId: string): Checkpoint[] {
+  return db.prepare('SELECT * FROM checkpoints WHERE card_id = ? ORDER BY created_at ASC').all(cardId) as Checkpoint[];
+}
+
+export function deleteCheckpoint(db: Database.Database, id: string): void {
+  db.prepare('DELETE FROM checkpoints WHERE id = ?').run(id);
 }

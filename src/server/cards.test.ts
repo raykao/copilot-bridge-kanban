@@ -15,6 +15,9 @@ import {
   createRun,
   updateRun,
   listRuns,
+  createCheckpoint,
+  listCheckpoints,
+  deleteCheckpoint,
 } from './cards.js';
 
 let db: Database.Database;
@@ -111,6 +114,7 @@ describe('cards', () => {
     addLabels(db, card.id, ['test']);
     addComment(db, { card_id: card.id, author_kind: 'human', author_id: 'alice', content: 'hi' });
     createRun(db, { card_id: card.id, agent_name: 'bob' });
+    createCheckpoint(db, { card_id: card.id, created_by: 'alice' });
 
     deleteCard(db, card.id);
 
@@ -118,6 +122,7 @@ describe('cards', () => {
     expect(getLabels(db, card.id)).toEqual([]);
     expect(listComments(db, card.id)).toEqual([]);
     expect(listRuns(db, card.id)).toEqual([]);
+    expect(listCheckpoints(db, card.id)).toEqual([]);
   });
 
   it('returns null for nonexistent card', () => {
@@ -232,5 +237,67 @@ describe('runs', () => {
     createRun(db, { card_id: card.id, agent_name: 'bob' });
 
     expect(listRuns(db, card.id)).toHaveLength(2);
+  });
+});
+
+describe('checkpoints', () => {
+  it('creates a checkpoint with default values', () => {
+    const card = createCard(db, { title: 'Checkpointed', created_by: 'alice' });
+    const checkpoint = createCheckpoint(db, { card_id: card.id, created_by: 'alice' });
+
+    expect(checkpoint.id).toBeTruthy();
+    expect(checkpoint.card_id).toBe(card.id);
+    expect(checkpoint.name).toBeNull();
+    expect(checkpoint.turn_index).toBe(0);
+    expect(checkpoint.git_ref).toBeNull();
+    expect(checkpoint.created_by).toBe('alice');
+    expect(checkpoint.created_at).toBeTruthy();
+  });
+
+  it('creates a checkpoint with name and git_ref', () => {
+    const card = createCard(db, { title: 'Named checkpoint', created_by: 'alice' });
+    const checkpoint = createCheckpoint(db, {
+      card_id: card.id,
+      created_by: 'alice',
+      name: 'Before refactor',
+      turn_index: 3,
+      git_ref: 'abc123',
+    });
+
+    expect(checkpoint.name).toBe('Before refactor');
+    expect(checkpoint.turn_index).toBe(3);
+    expect(checkpoint.git_ref).toBe('abc123');
+  });
+
+  it('lists checkpoints for a card ordered by created_at ascending', () => {
+    const card = createCard(db, { title: 'Ordered checkpoints', created_by: 'alice' });
+    const otherCard = createCard(db, { title: 'Other checkpoints', created_by: 'alice' });
+    const first = createCheckpoint(db, { card_id: card.id, created_by: 'alice', name: 'First' });
+    const second = createCheckpoint(db, { card_id: card.id, created_by: 'alice', name: 'Second' });
+    createCheckpoint(db, { card_id: otherCard.id, created_by: 'alice', name: 'Other' });
+
+    db.prepare('UPDATE checkpoints SET created_at = ? WHERE id = ?').run('2026-01-01T00:00:00.000Z', first.id);
+    db.prepare('UPDATE checkpoints SET created_at = ? WHERE id = ?').run('2026-01-01T00:00:01.000Z', second.id);
+
+    const checkpoints = listCheckpoints(db, card.id);
+    expect(checkpoints.map((checkpoint) => checkpoint.id)).toEqual([first.id, second.id]);
+  });
+
+  it('deletes a checkpoint', () => {
+    const card = createCard(db, { title: 'Delete checkpoint', created_by: 'alice' });
+    const checkpoint = createCheckpoint(db, { card_id: card.id, created_by: 'alice' });
+
+    deleteCheckpoint(db, checkpoint.id);
+
+    expect(listCheckpoints(db, card.id)).toEqual([]);
+  });
+
+  it('cascade-deletes checkpoints when card is deleted', () => {
+    const card = createCard(db, { title: 'Cascade checkpoint', created_by: 'alice' });
+    createCheckpoint(db, { card_id: card.id, created_by: 'alice' });
+
+    deleteCard(db, card.id);
+
+    expect(listCheckpoints(db, card.id)).toEqual([]);
   });
 });

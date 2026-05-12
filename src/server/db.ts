@@ -98,5 +98,18 @@ export function initializeSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_runs_card ON runs(card_id);
     CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+
+    CREATE TABLE IF NOT EXISTS checkpoints (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL,
+      name TEXT,
+      turn_index INTEGER NOT NULL DEFAULT 0,
+      git_ref TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_checkpoints_card ON checkpoints(card_id);
   `);
 }
