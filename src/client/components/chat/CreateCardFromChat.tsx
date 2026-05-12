@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -78,13 +78,19 @@ export function CreateCardFromChat({
       setDescription('');
       setTitleError(null);
       setSubmitError(null);
-      createCardMutation.reset();
       return;
     }
 
     setTitle(`Follow up with ${agentName}`);
     setDescription(summary);
-  }, [agentName, createCardMutation, open, summary]);
+  }, [agentName, open, summary]);
+
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    if (!nextOpen) {
+      createCardMutation.reset();
+    }
+    setOpen(nextOpen);
+  }, [createCardMutation]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -108,7 +114,7 @@ export function CreateCardFromChat({
     <>
       <Button
         disabled={chatHistory.length === 0}
-        onClick={() => setOpen(true)}
+        onClick={() => handleOpenChange(true)}
         type="button"
         variant="outline"
       >
@@ -116,7 +122,7 @@ export function CreateCardFromChat({
         Create work card
       </Button>
 
-      <Dialog onOpenChange={setOpen} open={open}>
+      <Dialog onOpenChange={handleOpenChange} open={open}>
         <DialogContent className="max-w-xl p-0">
           <form className="grid gap-4" onSubmit={(event) => void handleSubmit(event)}>
             <div className="grid gap-4 px-4 pt-4">
@@ -171,7 +177,7 @@ export function CreateCardFromChat({
             <DialogFooter>
               <Button
                 disabled={createCardMutation.isPending}
-                onClick={() => setOpen(false)}
+                onClick={() => handleOpenChange(false)}
                 type="button"
                 variant="outline"
               >

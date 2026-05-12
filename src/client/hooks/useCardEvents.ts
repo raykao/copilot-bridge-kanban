@@ -324,9 +324,9 @@ export function useCardEvents({
     };
   }, [cardId, enabled, invalidateCardQueries, retryToken]);
 
-  return {
+  return useMemo(() => ({
     ...streamingState,
     connectionStatus,
     retry,
-  };
+  }), [streamingState, connectionStatus, retry]);
 }

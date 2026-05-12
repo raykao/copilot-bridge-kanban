@@ -30,14 +30,6 @@ function sortComments(comments: CardComment[]): CardComment[] {
   );
 }
 
-function hasStreamingPayload(streamingContent: ReturnType<typeof useCardEvents>): boolean {
-  return (
-    streamingContent.isStreaming ||
-    streamingContent.content.trim().length > 0 ||
-    streamingContent.toolCalls.length > 0
-  );
-}
-
 export function ChatView({ agentName }: ChatViewProps) {
   const queryClient = useQueryClient();
   const [queuedMessage, setQueuedMessage] = useState<string | null>(null);
@@ -116,6 +108,9 @@ export function ChatView({ agentName }: ChatViewProps) {
     },
   });
 
+  const sendMessageRef = useRef(sendMessageMutation.mutateAsync);
+  sendMessageRef.current = sendMessageMutation.mutateAsync;
+
   useEffect(() => {
     if (!queuedMessage || !activeCardId || sendMessageMutation.isPending) {
       return;
@@ -123,8 +118,8 @@ export function ChatView({ agentName }: ChatViewProps) {
 
     const nextMessage = queuedMessage;
     setQueuedMessage(null);
-    void sendMessageMutation.mutateAsync({ cardId: activeCardId, content: nextMessage });
-  }, [activeCardId, queuedMessage, sendMessageMutation]);
+    void sendMessageRef.current({ cardId: activeCardId, content: nextMessage });
+  }, [activeCardId, queuedMessage, sendMessageMutation.isPending]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -135,15 +130,17 @@ export function ChatView({ agentName }: ChatViewProps) {
     streamingState.toolCalls.length,
   ]);
 
-  useEffect(() => {
-    const hasPayload = hasStreamingPayload(streamingState);
+  const streamingHasPayload = streamingState.isStreaming ||
+    streamingState.content.trim().length > 0 ||
+    streamingState.toolCalls.length > 0;
 
-    if (hadStreamingPayloadRef.current && !hasPayload && activeCardId) {
+  useEffect(() => {
+    if (hadStreamingPayloadRef.current && !streamingHasPayload && activeCardId) {
       void queryClient.invalidateQueries({ queryKey: commentsQueryKey });
     }
 
-    hadStreamingPayloadRef.current = hasPayload;
-  }, [activeCardId, commentsQueryKey, queryClient, streamingState]);
+    hadStreamingPayloadRef.current = streamingHasPayload;
+  }, [activeCardId, commentsQueryKey, queryClient, streamingHasPayload]);
 
   const handleSend = async (content: string) => {
     setSubmitError(null);
