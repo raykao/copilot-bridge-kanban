@@ -2,6 +2,7 @@ import { loadConfig } from './config.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { registerAuthRoutes, registerSessionMiddleware } from './auth.js';
 import { registerAgentCallbackRoutes } from './agent-callback.js';
+import { registerAgentRoutes } from './agents.js';
 import { registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerBridgeProxy } from './proxy.js';
@@ -21,6 +22,7 @@ async function main(): Promise<void> {
   registerAuthRoutes(server, db);
   registerAgentCallbackRoutes(server, db, config, sseManager);
   registerCardRoutes(server, db, config, sseManager);
+  registerAgentRoutes(server, config);
   registerBridgeProxy(server, config);
   registerPreferencesRoutes(server, db);
 
