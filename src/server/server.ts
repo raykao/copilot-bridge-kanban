@@ -11,7 +11,12 @@ export async function createServer(config: AppConfig): Promise<FastifyInstance> 
       level: config.logLevel,
       transport:
         process.env.NODE_ENV === 'development'
-          ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'HH:MM:ss.l' } }
+          ? {
+              targets: [
+                { target: 'pino-pretty', options: { colorize: true, translateTime: 'HH:MM:ss.l' } },
+                { target: 'pino/file', options: { destination: './data/kanban.log', mkdir: true } },
+              ],
+            }
           : undefined,
     },
   });
