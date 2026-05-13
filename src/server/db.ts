@@ -98,6 +98,7 @@ export function initializeSchema(db: Database.Database): void {
       card_id TEXT NOT NULL,
       agent_name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'created',
+      bridge_run_id TEXT,
       bridge_session_id TEXT,
       input_comment_id TEXT,
       error TEXT,

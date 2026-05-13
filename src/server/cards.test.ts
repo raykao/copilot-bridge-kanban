@@ -199,16 +199,18 @@ describe('runs', () => {
     expect(run.bridge_session_id).toBeNull();
   });
 
-  it('updates run status and session ID', () => {
+  it('updates run status, bridge run ID, and session ID', () => {
     const card = createCard(db, { title: 'Update', created_by: 'alice' });
     const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
 
     const updated = updateRun(db, run.id, {
-      status: 'in_progress',
+      status: 'running',
+      bridge_run_id: 'run-123',
       bridge_session_id: 'session-123',
     });
 
-    expect(updated.status).toBe('in_progress');
+    expect(updated.status).toBe('running');
+    expect(updated.bridge_run_id).toBe('run-123');
     expect(updated.bridge_session_id).toBe('session-123');
   });
 
