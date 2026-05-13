@@ -1,11 +1,16 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { useNavigate } from 'react-router-dom';
 
 import type { Card as CardType } from '@/api/types';
+import { RunDetailDrawer } from '@/components/RunDetailDrawer';
+import { RunStatusBar } from '@/components/RunStatusBar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import type { StreamingState } from '@/hooks/useCardEvents';
+import { useCardEvents } from '@/hooks/useCardEvents';
 import { cn } from '@/lib/utils';
 
 interface CardPreviewProps {
@@ -88,13 +93,31 @@ interface CardPreviewBodyProps {
   card: CardType;
   className?: string;
   onClick: () => void;
-  onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
-  style?: React.CSSProperties;
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  onViewLive: (runId: string) => void;
+  streaming: StreamingState;
+  style?: CSSProperties;
   draggableProps?: Pick<ReturnType<typeof useDraggable>, 'attributes' | 'listeners' | 'setNodeRef'>;
 }
 
-function CardPreviewBody({ card, className, onClick, onKeyDown, style, draggableProps }: CardPreviewBodyProps) {
+function CardPreviewBody({
+  card,
+  className,
+  onClick,
+  onKeyDown,
+  onViewLive,
+  streaming,
+  style,
+  draggableProps,
+}: CardPreviewBodyProps) {
   const relativeTime = useMemo(() => timeAgo(card.updated_at), [card.updated_at]);
+  const latestRun = card.runs?.length ? card.runs[card.runs.length - 1] : null;
+
+  const stopCardAction = (
+    event: MouseEvent<HTMLDivElement> | PointerEvent<HTMLDivElement> | KeyboardEvent<HTMLDivElement>,
+  ) => {
+    event.stopPropagation();
+  };
 
   return (
     <Card
@@ -144,12 +167,23 @@ function CardPreviewBody({ card, className, onClick, onKeyDown, style, draggable
           )}
         </div>
         <div className="text-xs text-muted-foreground">{relativeTime}</div>
+        <div onClick={stopCardAction} onKeyDown={stopCardAction} onPointerDown={stopCardAction}>
+          <RunStatusBar cardId={card.id} latestRun={latestRun} streaming={streaming} onViewLive={onViewLive} />
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-function StaticCardPreview({ card }: { card: CardType }) {
+function StaticCardPreview({
+  card,
+  onViewLive,
+  streaming,
+}: {
+  card: CardType;
+  onViewLive: (runId: string) => void;
+  streaming: StreamingState;
+}) {
   const navigate = useNavigate();
 
   return (
@@ -163,11 +197,21 @@ function StaticCardPreview({ card }: { card: CardType }) {
           navigate(`/cards/${card.id}`);
         }
       }}
+      onViewLive={onViewLive}
+      streaming={streaming}
     />
   );
 }
 
-function DraggableCardPreview({ card }: { card: CardType }) {
+function DraggableCardPreview({
+  card,
+  onViewLive,
+  streaming,
+}: {
+  card: CardType;
+  onViewLive: (runId: string) => void;
+  streaming: StreamingState;
+}) {
   const navigate = useNavigate();
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: card.id });
 
@@ -183,15 +227,32 @@ function DraggableCardPreview({ card }: { card: CardType }) {
           navigate(`/cards/${card.id}`);
         }
       }}
+      onViewLive={onViewLive}
+      streaming={streaming}
       style={{ transform: CSS.Translate.toString(transform) }}
     />
   );
 }
 
 export function CardPreview({ card, isDragOverlay = false }: CardPreviewProps) {
+  const [drawerRunId, setDrawerRunId] = useState<string | null>(null);
+  const streaming = useCardEvents({ cardId: card.id, enabled: !isDragOverlay });
+  const handleViewLive = (runId: string) => setDrawerRunId(runId);
+
   if (isDragOverlay) {
-    return <StaticCardPreview card={card} />;
+    return <StaticCardPreview card={card} onViewLive={handleViewLive} streaming={streaming} />;
   }
 
-  return <DraggableCardPreview card={card} />;
+  return (
+    <>
+      <DraggableCardPreview card={card} onViewLive={handleViewLive} streaming={streaming} />
+      <RunDetailDrawer
+        cardId={card.id}
+        cardTitle={card.title}
+        onClose={() => setDrawerRunId(null)}
+        open={!!drawerRunId}
+        runId={drawerRunId}
+      />
+    </>
+  );
 }

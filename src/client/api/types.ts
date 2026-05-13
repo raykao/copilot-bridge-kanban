@@ -24,6 +24,7 @@ export interface Card {
   workspace_subdir: string | null;
   metadata: Record<string, unknown>;
   labels: string[];
+  runs?: Run[];
   created_at: string;
   updated_at: string;
   archived_at: string | null;
