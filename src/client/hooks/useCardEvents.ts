@@ -11,11 +11,18 @@ export interface UseCardEventsOptions {
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'idle' | 'reconnecting';
 
+export interface AwaitingPermission {
+  runId: string;
+  tool: string;
+  detail?: string;
+}
+
 export interface StreamingState {
   isStreaming: boolean;
   content: string;
   toolCalls: ToolCall[];
   connectionStatus: ConnectionStatus;
+  awaitingPermission: AwaitingPermission | null;
   retry: () => void;
 }
 
@@ -24,6 +31,7 @@ const initialStreamingState: StreamingState = {
   content: '',
   toolCalls: [],
   connectionStatus: 'idle',
+  awaitingPermission: null,
   retry: () => undefined,
 };
 
@@ -231,7 +239,7 @@ export function useCardEvents({
         return;
       }
 
-      switch (event.type) {
+      switch (event.type as string) {
         case 'message.part': {
           const chunk = getChunkContent(event.data);
           if (!chunk) {
@@ -243,6 +251,17 @@ export function useCardEvents({
             isStreaming: true,
             content: `${current.content}${chunk}`,
           }));
+          return;
+        }
+        case 'run.text_delta': {
+          const chunk = getChunkContent(event.data);
+          if (chunk) {
+            setStreamingState((current) => ({
+              ...current,
+              isStreaming: true,
+              content: `${current.content}${chunk}`,
+            }));
+          }
           return;
         }
         case 'tool.call': {
@@ -258,6 +277,17 @@ export function useCardEvents({
           }));
           return;
         }
+        case 'tool.start': {
+          const toolCall = toolCallFromEvent(event.data);
+          if (toolCall) {
+            setStreamingState((current) => ({
+              ...current,
+              isStreaming: true,
+              toolCalls: upsertToolCall(current.toolCalls, toolCall),
+            }));
+          }
+          return;
+        }
         case 'tool.result': {
           const toolCall = toolResultFromEvent(event.data);
           if (!toolCall) {
@@ -271,6 +301,41 @@ export function useCardEvents({
           }));
           return;
         }
+        case 'tool.end': {
+          const toolCall = toolResultFromEvent(event.data);
+          if (toolCall) {
+            setStreamingState((current) => ({
+              ...current,
+              toolCalls: upsertToolCall(current.toolCalls, toolCall),
+            }));
+          }
+          return;
+        }
+        case 'run.awaiting': {
+          if (!isRecord(event.data)) {
+            return;
+          }
+
+          const data = event.data;
+          setStreamingState((current) => ({
+            ...current,
+            isStreaming: false,
+            awaitingPermission: {
+              runId: getString(data.run_id) ?? '',
+              tool: getString(data.tool) ?? '',
+              detail: getString(data.detail),
+            },
+          }));
+          return;
+        }
+        case 'run.queued':
+        case 'run.in_progress': {
+          setStreamingState((current) => ({
+            ...current,
+            awaitingPermission: null,
+          }));
+          return;
+        }
         case 'message.completed': {
           void invalidateCardQueries();
           setStreamingState((current) => ({
@@ -279,6 +344,7 @@ export function useCardEvents({
           }));
           return;
         }
+        case 'run.status':
         case 'run.completed':
         case 'run.failed':
         case 'run.cancelled':
@@ -287,6 +353,7 @@ export function useCardEvents({
           setStreamingState((current) => ({
             ...initialStreamingState,
             retry: current.retry,
+            awaitingPermission: null,
           }));
           return;
         }
