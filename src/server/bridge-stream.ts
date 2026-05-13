@@ -4,7 +4,8 @@ export type BridgeEventType =
   | 'run.awaiting'
   | 'run.completed'
   | 'run.failed'
-  | 'run.text_delta'
+  | 'message.part'
+  | 'message.completed'
   | 'tool.start'
   | 'tool.end';
 
@@ -27,7 +28,8 @@ const bridgeEventTypes = new Set<string>([
   'run.awaiting',
   'run.completed',
   'run.failed',
-  'run.text_delta',
+  'message.part',
+  'message.completed',
   'tool.start',
   'tool.end',
 ]);

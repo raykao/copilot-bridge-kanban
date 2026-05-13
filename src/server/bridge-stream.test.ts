@@ -46,7 +46,7 @@ describe('subscribeToBridgeRunStream', () => {
     const fetchMock = mockFetchWithChunks([
       'event: run.queued\ndata: {"run_id":"run-1"}\n\n',
       ':heartbeat\n\n',
-      'event: run.text_delta\ndata: {"text":"hello"}\n\n',
+      'event: message.part\ndata: {"content":"hello"}\n\n',
       'event: tool.start\ndata: {"name":"shell"}\n\n',
       'event: unknown\ndata: {"ignored":true}\n\n',
       'event: tool.end\ndata: {"ok":true}\n\n',
@@ -65,7 +65,7 @@ describe('subscribeToBridgeRunStream', () => {
 
     expect(events).toEqual([
       { type: 'run.queued', data: { run_id: 'run-1' } },
-      { type: 'run.text_delta', data: { text: 'hello' } },
+      { type: 'message.part', data: { content: 'hello' } },
       { type: 'tool.start', data: { name: 'shell' } },
       { type: 'tool.end', data: { ok: true } },
     ]);
@@ -80,7 +80,7 @@ describe('subscribeToBridgeRunStream', () => {
     const onClose = vi.fn();
     mockFetchWithChunks([
       'event: run.completed\ndata: {"result":"ok"}\n\n',
-      'event: run.text_delta\ndata: {"text":"ignored"}\n\n',
+      'event: message.part\ndata: {"content":"ignored"}\n\n',
     ]);
 
     subscribeToBridgeRunStream({
@@ -94,6 +94,29 @@ describe('subscribeToBridgeRunStream', () => {
     await waitFor(() => onClose.mock.calls.length === 1);
     expect(events).toEqual([{ type: 'run.completed', data: { result: 'ok' } }]);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes message.completed events through', async () => {
+    const events: BridgeEvent[] = [];
+    const onClose = vi.fn();
+    mockFetchWithChunks([
+      'event: message.completed\ndata: {"role":"agent","content":"Done"}\n\n',
+      'event: run.completed\ndata: {}\n\n',
+    ]);
+
+    subscribeToBridgeRunStream({
+      bridgeApiUrl: 'http://bridge.example',
+      bridgeApiKey: 'key-1',
+      runId: 'run-1',
+      onEvent: (event) => events.push(event),
+      onClose,
+    });
+
+    await waitFor(() => onClose.mock.calls.length === 1);
+    expect(events[0]).toEqual({
+      type: 'message.completed',
+      data: { role: 'agent', content: 'Done' },
+    });
   });
 
   it('calls onClose on terminal event run.failed', async () => {
