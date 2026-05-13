@@ -13,6 +13,7 @@ import {
   addComment,
   listComments,
   createRun,
+  updateRun,
   listRuns,
   createCheckpoint,
   getCheckpoint,
@@ -20,6 +21,7 @@ import {
   deleteCheckpoint,
   type CardFilter,
 } from './cards.js';
+import { subscribeToBridgeRunStream } from './bridge-stream.js';
 import { dispatchToBridge } from './dispatch.js';
 import type { SseManager } from './sse.js';
 
@@ -85,13 +87,35 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
           agent_name: card.agent_bot,
           input_comment_id: comment.id,
         });
+        const bot = card.agent_bot;
+        const prompt = card.description;
 
-        dispatchToBridge(config, db, {
-          bot: card.agent_bot,
-          prompt: card.description,
-          cardId: card.id,
-          runId: run.id,
-        }).catch((err) => {
+        void (async () => {
+          const dispatchResult = await dispatchToBridge(config, db, {
+            bot,
+            prompt,
+            cardId: card.id,
+            runId: run.id,
+          });
+          if (dispatchResult.ok && dispatchResult.bridgeRunId && sseManager) {
+            subscribeToBridgeRunStream({
+              bridgeApiUrl: config.bridgeApiUrl,
+              bridgeApiKey: config.bridgeApiKey,
+              runId: dispatchResult.bridgeRunId,
+              onEvent: (event) => {
+                sseManager.emit(card.id, event.type, event.data);
+                if (event.type === 'run.awaiting') {
+                  updateRun(db, run.id, { status: 'awaiting' });
+                } else if (event.type === 'run.completed') {
+                  updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
+                } else if (event.type === 'run.failed') {
+                  updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
+                }
+              },
+              onClose: () => {},
+            });
+          }
+        })().catch((err) => {
           app.log.error({ err, cardId: card.id, runId: run.id }, 'dispatch failed');
         });
       }
@@ -230,13 +254,34 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
       run_id = run.id;
 
       if (config) {
+        const bot = card.agent_bot;
         // Fire-and-forget dispatch -- don't block the response
-        dispatchToBridge(config, db, {
-          bot: card.agent_bot,
-          prompt: body.content as string,
-          cardId: id,
-          runId: run.id,
-        }).catch((err) => {
+        void (async () => {
+          const dispatchResult = await dispatchToBridge(config, db, {
+            bot,
+            prompt: body.content as string,
+            cardId: id,
+            runId: run.id,
+          });
+          if (dispatchResult.ok && dispatchResult.bridgeRunId && sseManager) {
+            subscribeToBridgeRunStream({
+              bridgeApiUrl: config.bridgeApiUrl,
+              bridgeApiKey: config.bridgeApiKey,
+              runId: dispatchResult.bridgeRunId,
+              onEvent: (event) => {
+                sseManager.emit(id, event.type, event.data);
+                if (event.type === 'run.awaiting') {
+                  updateRun(db, run.id, { status: 'awaiting' });
+                } else if (event.type === 'run.completed') {
+                  updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
+                } else if (event.type === 'run.failed') {
+                  updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
+                }
+              },
+              onClose: () => {},
+            });
+          }
+        })().catch((err) => {
           app.log.error({ err, cardId: id, runId: run.id }, 'dispatch failed');
         });
       }
