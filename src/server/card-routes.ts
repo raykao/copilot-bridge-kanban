@@ -123,6 +123,9 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
               bridgeApiUrl: config.bridgeApiUrl,
               bridgeApiKey: config.bridgeApiKey,
               runId: dispatchResult.bridgeRunId,
+              bot,
+              prompt,
+              cardId: card.id,
               onEvent: (event) => {
                 sseManager.emit(card.id, event.type, event.data);
                 if (event.type === 'run.awaiting') {
@@ -289,6 +292,9 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
               bridgeApiUrl: config.bridgeApiUrl,
               bridgeApiKey: config.bridgeApiKey,
               runId: dispatchResult.bridgeRunId,
+              bot,
+              prompt: body.content as string,
+              cardId: id,
               onEvent: (event) => {
                 sseManager.emit(id, event.type, event.data);
                 if (event.type === 'run.awaiting') {

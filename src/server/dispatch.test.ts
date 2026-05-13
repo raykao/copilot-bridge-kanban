@@ -33,27 +33,30 @@ function seedRun(): { cardId: string; runId: string } {
 }
 
 describe('dispatchToBridge', () => {
-  it('dispatches to bridge with correct ACP body', async () => {
+  it('dispatches to bridge with correct A2A body', async () => {
     const { cardId, runId } = seedRun();
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 202,
-      json: async () => ({ run_id: 'br-1', status: 'created' }),
+      json: async () => ({ id: 'br-1', contextId: cardId, kind: 'task' }),
     });
     vi.stubGlobal('fetch', mockFetch);
     const result = await dispatchToBridge(config, db, { bot: 'bob', prompt: 'hello', cardId, runId });
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, init] = mockFetch.mock.calls[0];
-    expect(url).toBe('http://bridge/v1/runs');
+    expect(url).toBe('http://bridge/agents/bob/message:send');
     expect(init.method).toBe('POST');
     expect(init.headers).toEqual({
       'Content-Type': 'application/json',
       Authorization: 'Bearer test-key',
     });
     expect(JSON.parse(init.body)).toEqual({
-      agent_name: 'bob',
-      input: [{ role: 'user', parts: [{ content: 'hello' }] }],
-      session_id: cardId,
+      message: {
+        role: 'user',
+        parts: [{ kind: 'text', text: 'hello' }],
+        messageId: runId,
+        contextId: cardId,
+      },
     });
     expect(result).toEqual({ ok: true, bridgeRunId: 'br-1' });
   });
@@ -72,5 +75,20 @@ describe('dispatchToBridge', () => {
     const updated = runs.find((r) => r.id === runId)!;
     expect(updated.status).toBe('failed');
     expect(updated.error).toContain('400');
+  });
+
+  it('marks run as failed when bridge returns malformed task response', async () => {
+    const { cardId, runId } = seedRun();
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'br-1', contextId: cardId, kind: 'message' }),
+    }));
+    const result = await dispatchToBridge(config, db, { bot: 'bob', prompt: 'hi', cardId, runId });
+    expect(result).toEqual({ ok: false, error: 'Bridge returned malformed task response' });
+    const runs = listRuns(db, cardId);
+    const updated = runs.find((r) => r.id === runId)!;
+    expect(updated.status).toBe('failed');
+    expect(updated.error).toBe('Bridge returned malformed task response');
   });
 });

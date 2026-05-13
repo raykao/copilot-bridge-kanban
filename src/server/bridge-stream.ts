@@ -1,5 +1,6 @@
 export type BridgeEventType =
   | 'run.queued'
+  | 'run.created'
   | 'run.in_progress'
   | 'run.awaiting'
   | 'run.completed'
@@ -18,12 +19,17 @@ export interface BridgeStreamOptions {
   bridgeApiUrl: string;
   bridgeApiKey: string;
   runId: string;
+  bot: string;
+  prompt: string;
+  cardId: string;
+  messageId?: string;
   onEvent: (event: BridgeEvent) => void;
   onClose: () => void;
 }
 
 const bridgeEventTypes = new Set<string>([
   'run.queued',
+  'run.created',
   'run.in_progress',
   'run.awaiting',
   'run.completed',
@@ -54,6 +60,70 @@ function parseData(dataLines: string[]): Record<string, unknown> {
   return {};
 }
 
+function textFromParts(value: unknown): string {
+  if (!Array.isArray(value)) return '';
+  return value
+    .filter((part): part is { kind: string; text: string } => {
+      return Boolean(part)
+        && typeof part === 'object'
+        && 'kind' in part
+        && 'text' in part
+        && (part as { kind?: unknown }).kind === 'text'
+        && typeof (part as { text?: unknown }).text === 'string';
+    })
+    .map((part) => part.text)
+    .join('');
+}
+
+function mapA2AEvent(eventType: string, data: Record<string, unknown>): BridgeEvent | null {
+  if (eventType === 'task') {
+    if (data.kind !== 'task' || typeof data.id !== 'string') return null;
+    return { type: 'run.created', data: { run_id: data.id } };
+  }
+
+  if (eventType === 'status-update') {
+    if (typeof data.taskId !== 'string') return null;
+    const status = data.status;
+    if (!status || typeof status !== 'object' || Array.isArray(status)) return null;
+
+    const state = (status as { state?: unknown }).state;
+    if (typeof state !== 'string') return null;
+
+    if (state === 'working') {
+      return { type: 'run.in_progress', data: { run_id: data.taskId } };
+    }
+    if (state === 'input-required') {
+      return { type: 'run.awaiting', data: { run_id: data.taskId } };
+    }
+    if (state === 'completed') {
+      return { type: 'run.completed', data: { run_id: data.taskId } };
+    }
+    if (state === 'failed') {
+      const message = (status as { message?: unknown }).message;
+      const parts = message && typeof message === 'object' && !Array.isArray(message)
+        ? (message as { parts?: unknown }).parts
+        : undefined;
+      return { type: 'run.failed', data: { run_id: data.taskId, error: textFromParts(parts) } };
+    }
+    if (state === 'canceled') {
+      return { type: 'run.failed', data: { run_id: data.taskId, error: 'cancelled' } };
+    }
+
+    return null;
+  }
+
+  if (eventType === 'artifact-update') {
+    const artifact = data.artifact;
+    if (!artifact || typeof artifact !== 'object' || Array.isArray(artifact)) return null;
+    const content = textFromParts((artifact as { parts?: unknown }).parts);
+    const type = data.lastChunk === true ? 'message.completed' : 'message.part';
+    return { type, data: { role: 'agent', content } };
+  }
+
+  if (!isBridgeEventType(eventType)) return null;
+  return { type: eventType, data };
+}
+
 function parseFrame(frame: string): BridgeEvent | null {
   if (frame.trim() === '') return null;
 
@@ -70,12 +140,9 @@ function parseFrame(frame: string): BridgeEvent | null {
     }
   }
 
-  if (!eventType || !isBridgeEventType(eventType)) return null;
+  if (!eventType) return null;
 
-  return {
-    type: eventType,
-    data: parseData(dataLines),
-  };
+  return mapA2AEvent(eventType, parseData(dataLines));
 }
 
 /** Subscribe to the bridge SSE stream for a run. Returns a cancel function that terminates the stream. */
@@ -92,9 +159,22 @@ export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => voi
   void (async () => {
     try {
       const base = opts.bridgeApiUrl.endsWith('/') ? opts.bridgeApiUrl : `${opts.bridgeApiUrl}/`;
-      const url = new URL(`v1/runs/${encodeURIComponent(opts.runId)}/stream`, base);
+      const url = new URL(`agents/${encodeURIComponent(opts.bot)}/message:stream`, base);
+      const body = {
+        message: {
+          role: 'user' as const,
+          parts: [{ kind: 'text' as const, text: opts.prompt }],
+          messageId: opts.messageId ?? opts.runId,
+          contextId: opts.cardId,
+        },
+      };
       const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${opts.bridgeApiKey}` },
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${opts.bridgeApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
 

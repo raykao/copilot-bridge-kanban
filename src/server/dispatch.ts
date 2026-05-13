@@ -7,6 +7,7 @@ export interface DispatchOptions {
   prompt: string;
   cardId: string;
   runId: string;
+  messageId?: string;
 }
 
 export interface DispatchResult {
@@ -15,8 +16,14 @@ export interface DispatchResult {
   error?: string;
 }
 
+interface A2ATaskResponse {
+  id?: unknown;
+  contextId?: unknown;
+  kind?: unknown;
+}
+
 /**
- * Dispatch a prompt to the bridge ACP runs endpoint.
+ * Dispatch a prompt to the bridge A2A message endpoint.
  */
 export async function dispatchToBridge(
   config: AppConfig,
@@ -24,13 +31,16 @@ export async function dispatchToBridge(
   opts: DispatchOptions,
 ): Promise<DispatchResult> {
   const body = {
-    agent_name: opts.bot,
-    input: [{ role: 'user' as const, parts: [{ content: opts.prompt }] }],
-    session_id: opts.cardId,
+    message: {
+      role: 'user' as const,
+      parts: [{ kind: 'text' as const, text: opts.prompt }],
+      messageId: opts.messageId ?? opts.runId,
+      contextId: opts.cardId,
+    },
   };
 
   try {
-    const res = await fetch(`${config.bridgeApiUrl}/v1/runs`, {
+    const res = await fetch(`${config.bridgeApiUrl}/agents/${encodeURIComponent(opts.bot)}/message:send`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -46,14 +56,19 @@ export async function dispatchToBridge(
       return { ok: false, error: message };
     }
 
-    const result = (await res.json()) as { run_id: string; status: string };
+    const task = (await res.json()) as A2ATaskResponse;
+    if (task.kind !== 'task' || typeof task.id !== 'string') {
+      const message = 'Bridge returned malformed task response';
+      updateRun(db, opts.runId, { status: 'failed', error: message });
+      return { ok: false, error: message };
+    }
 
     updateRun(db, opts.runId, {
       status: 'running',
-      bridge_run_id: result.run_id,
+      bridge_run_id: task.id,
     });
 
-    return { ok: true, bridgeRunId: result.run_id };
+    return { ok: true, bridgeRunId: task.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
     updateRun(db, opts.runId, { status: 'failed', error: message });

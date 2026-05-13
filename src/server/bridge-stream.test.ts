@@ -25,6 +25,20 @@ function mockFetchWithChunks(chunks: string[], options: { ok?: boolean; onCancel
   return fetchMock;
 }
 
+function streamOptions(overrides: Partial<Parameters<typeof subscribeToBridgeRunStream>[0]> = {}) {
+  return {
+    bridgeApiUrl: 'http://bridge.example',
+    bridgeApiKey: 'key-1',
+    runId: 'run-1',
+    bot: 'bob',
+    prompt: 'hello',
+    cardId: 'card-1',
+    onEvent: vi.fn(),
+    onClose: vi.fn(),
+    ...overrides,
+  };
+}
+
 async function waitFor(condition: () => boolean, timeoutMs = 1000): Promise<void> {
   const start = Date.now();
   while (!condition()) {
@@ -40,77 +54,78 @@ describe('subscribeToBridgeRunStream', () => {
     vi.unstubAllGlobals();
   });
 
-  it('fires events when SSE frames arrive', async () => {
+  it('fires mapped A2A events when SSE frames arrive', async () => {
     const events: BridgeEvent[] = [];
     const onClose = vi.fn();
     const fetchMock = mockFetchWithChunks([
-      'event: run.queued\ndata: {"run_id":"run-1"}\n\n',
+      'event: task\ndata: {"kind":"task","id":"task-1","contextId":"card-1"}\n\n',
       ':heartbeat\n\n',
-      'event: message.part\ndata: {"content":"hello"}\n\n',
-      'event: tool.start\ndata: {"name":"shell"}\n\n',
+      'event: artifact-update\ndata: {"taskId":"task-1","artifact":{"parts":[{"kind":"text","text":"hello"}]},"lastChunk":false}\n\n',
+      'event: status-update\ndata: {"taskId":"task-1","status":{"state":"working"}}\n\n',
       'event: unknown\ndata: {"ignored":true}\n\n',
-      'event: tool.end\ndata: {"ok":true}\n\n',
     ]);
 
-    const cancel = subscribeToBridgeRunStream({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      runId: 'run-1',
+    const cancel = subscribeToBridgeRunStream(streamOptions({
       onEvent: (event) => events.push(event),
       onClose,
-    });
+    }));
 
     expect(typeof cancel).toBe('function');
     await waitFor(() => onClose.mock.calls.length === 1);
 
     expect(events).toEqual([
-      { type: 'run.queued', data: { run_id: 'run-1' } },
-      { type: 'message.part', data: { content: 'hello' } },
-      { type: 'tool.start', data: { name: 'shell' } },
-      { type: 'tool.end', data: { ok: true } },
+      { type: 'run.created', data: { run_id: 'task-1' } },
+      { type: 'message.part', data: { role: 'agent', content: 'hello' } },
+      { type: 'run.in_progress', data: { run_id: 'task-1' } },
     ]);
-    expect(fetchMock).toHaveBeenCalledWith(new URL('http://bridge.example/v1/runs/run-1/stream'), {
-      headers: { Authorization: 'Bearer key-1' },
+    expect(fetchMock).toHaveBeenCalledWith(new URL('http://bridge.example/agents/bob/message:stream'), {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer key-1',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: {
+          role: 'user',
+          parts: [{ kind: 'text', text: 'hello' }],
+          messageId: 'run-1',
+          contextId: 'card-1',
+        },
+      }),
       signal: expect.any(AbortSignal),
     });
   });
 
-  it('calls onClose on terminal event run.completed', async () => {
+  it('calls onClose on terminal status-update completed', async () => {
     const events: BridgeEvent[] = [];
     const onClose = vi.fn();
     mockFetchWithChunks([
-      'event: run.completed\ndata: {"result":"ok"}\n\n',
-      'event: message.part\ndata: {"content":"ignored"}\n\n',
+      'event: status-update\ndata: {"taskId":"task-1","status":{"state":"completed"},"final":true}\n\n',
+      'event: artifact-update\ndata: {"artifact":{"parts":[{"kind":"text","text":"ignored"}]},"lastChunk":false}\n\n',
     ]);
 
-    subscribeToBridgeRunStream({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      runId: 'run-1',
+    subscribeToBridgeRunStream(streamOptions({
       onEvent: (event) => events.push(event),
       onClose,
-    });
+    }));
 
     await waitFor(() => onClose.mock.calls.length === 1);
-    expect(events).toEqual([{ type: 'run.completed', data: { result: 'ok' } }]);
+    expect(events).toEqual([{ type: 'run.completed', data: { run_id: 'task-1' } }]);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('passes message.completed events through', async () => {
+  it('maps artifact-update lastChunk true to message.completed', async () => {
     const events: BridgeEvent[] = [];
     const onClose = vi.fn();
     mockFetchWithChunks([
-      'event: message.completed\ndata: {"role":"agent","content":"Done"}\n\n',
-      'event: run.completed\ndata: {}\n\n',
+      'event: artifact-update\ndata: {"taskId":"task-1","artifact":{"parts":[{"kind":"text","text":"Done"}]},"lastChunk":true}\n\n',
+      'event: status-update\ndata: {"taskId":"task-1","status":{"state":"completed"}}\n\n',
     ]);
 
-    subscribeToBridgeRunStream({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      runId: 'run-1',
+    subscribeToBridgeRunStream(streamOptions({
       onEvent: (event) => events.push(event),
       onClose,
-    });
+    }));
 
     await waitFor(() => onClose.mock.calls.length === 1);
     expect(events[0]).toEqual({
@@ -119,21 +134,36 @@ describe('subscribeToBridgeRunStream', () => {
     });
   });
 
-  it('calls onClose on terminal event run.failed', async () => {
+  it('maps artifact-update lastChunk false to message.part', async () => {
     const events: BridgeEvent[] = [];
     const onClose = vi.fn();
-    mockFetchWithChunks(['event: run.failed\ndata: {"error":"boom"}\n\n']);
+    mockFetchWithChunks([
+      'event: artifact-update\ndata: {"taskId":"task-1","artifact":{"parts":[{"kind":"text","text":"hello"}]},"lastChunk":false}\n\n',
+    ]);
 
-    subscribeToBridgeRunStream({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      runId: 'run-1',
+    subscribeToBridgeRunStream(streamOptions({
       onEvent: (event) => events.push(event),
       onClose,
-    });
+    }));
 
     await waitFor(() => onClose.mock.calls.length === 1);
-    expect(events).toEqual([{ type: 'run.failed', data: { error: 'boom' } }]);
+    expect(events).toEqual([{ type: 'message.part', data: { role: 'agent', content: 'hello' } }]);
+  });
+
+  it('calls onClose on terminal status-update failed with message text', async () => {
+    const events: BridgeEvent[] = [];
+    const onClose = vi.fn();
+    mockFetchWithChunks([
+      'event: status-update\ndata: {"taskId":"task-1","status":{"state":"failed","message":{"parts":[{"kind":"text","text":"boom"}]}}}\n\n',
+    ]);
+
+    subscribeToBridgeRunStream(streamOptions({
+      onEvent: (event) => events.push(event),
+      onClose,
+    }));
+
+    await waitFor(() => onClose.mock.calls.length === 1);
+    expect(events).toEqual([{ type: 'run.failed', data: { run_id: 'task-1', error: 'boom' } }]);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -153,13 +183,11 @@ describe('subscribeToBridgeRunStream', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const onClose = vi.fn();
-    const cancel = subscribeToBridgeRunStream({
+    const cancel = subscribeToBridgeRunStream(streamOptions({
       bridgeApiUrl: 'http://bridge.example/base',
-      bridgeApiKey: 'key-1',
-      runId: 'run with spaces/slash',
-      onEvent: vi.fn(),
+      bot: 'bot with spaces/slash',
       onClose,
-    });
+    }));
 
     await waitFor(() => fetchMock.mock.calls.length === 1 && Boolean(signal));
     expect(signal).toBeInstanceOf(AbortSignal);
@@ -169,31 +197,40 @@ describe('subscribeToBridgeRunStream', () => {
 
     await waitFor(() => onClose.mock.calls.length === 1);
     expect(signal?.aborted).toBe(true);
-    expect(fetchMock.mock.calls[0][0].href).toBe('http://bridge.example/base/v1/runs/run%20with%20spaces%2Fslash/stream');
+    expect(fetchMock.mock.calls[0][0].href).toBe('http://bridge.example/base/agents/bot%20with%20spaces%2Fslash/message:stream');
   });
 
-  it('defaults empty, malformed, and non-object data to an empty object', async () => {
+  it('ignores empty, malformed, and non-object data gracefully', async () => {
     const events: BridgeEvent[] = [];
     const onClose = vi.fn();
     mockFetchWithChunks([
-      'event: run.awaiting\ndata:\n\n',
-      'event: tool.start\ndata: not-json\n\n',
-      'event: tool.end\ndata: ["not","object"]\n\n',
+      'event: status-update\ndata:\n\n',
+      'event: task\ndata: not-json\n\n',
+      'event: artifact-update\ndata: ["not","object"]\n\n',
     ]);
 
-    subscribeToBridgeRunStream({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      runId: 'run-1',
+    subscribeToBridgeRunStream(streamOptions({
       onEvent: (event) => events.push(event),
       onClose,
-    });
+    }));
 
     await waitFor(() => onClose.mock.calls.length === 1);
-    expect(events).toEqual([
-      { type: 'run.awaiting', data: {} },
-      { type: 'tool.start', data: {} },
-      { type: 'tool.end', data: {} },
+    expect(events).toEqual([]);
+  });
+
+  it('maps status-update input-required to run.awaiting', async () => {
+    const events: BridgeEvent[] = [];
+    const onClose = vi.fn();
+    mockFetchWithChunks([
+      'event: status-update\ndata: {"taskId":"task-1","status":{"state":"input-required"}}\n\n',
     ]);
+
+    subscribeToBridgeRunStream(streamOptions({
+      onEvent: (event) => events.push(event),
+      onClose,
+    }));
+
+    await waitFor(() => onClose.mock.calls.length === 1);
+    expect(events).toEqual([{ type: 'run.awaiting', data: { run_id: 'task-1' } }]);
   });
 });
