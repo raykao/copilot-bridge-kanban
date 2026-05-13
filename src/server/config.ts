@@ -4,7 +4,6 @@ export interface AppConfig {
   port: number;
   bridgeApiUrl: string;
   bridgeApiKey: string;
-  kanbanBaseUrl: string;
   sessionSecret: string;
   dbPath: string;
   logLevel: LogLevel;
@@ -36,7 +35,6 @@ export function loadConfig(): AppConfig {
     port: parseInt(process.env.PORT ?? '3000', 10),
     bridgeApiUrl: bridgeApiUrl.replace(/\/+$/, ''),
     bridgeApiKey,
-    kanbanBaseUrl: (process.env.KANBAN_BASE_URL ?? `http://localhost:${process.env.PORT ?? '3000'}`).replace(/\/+$/, ''),
     sessionSecret,
     dbPath: process.env.DB_PATH ?? './data/kanban.db',
     logLevel,

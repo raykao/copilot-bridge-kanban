@@ -7,15 +7,13 @@ import { createUser, registerAuthRoutes, registerSessionMiddleware } from './aut
 import { createDatabase, initializeSchema } from './db.js';
 import { createServer } from './server.js';
 import { registerCardRoutes } from './card-routes.js';
-import { registerAgentCallbackRoutes } from './agent-callback.js';
-import { createCard, createRun } from './cards.js';
+import { createCard } from './cards.js';
 import { SseManager } from './sse.js';
 
 const config: AppConfig = {
   port: 0, // random port
   bridgeApiUrl: 'http://localhost:7878',
   bridgeApiKey: 'test-bridge-key',
-  kanbanBaseUrl: 'http://localhost:3000',
   sessionSecret: 'secret',
   dbPath: ':memory:',
   logLevel: 'silent',
@@ -209,7 +207,6 @@ describe('SSE integration', () => {
     const server = await createServer(config);
     registerSessionMiddleware(server, db);
     registerAuthRoutes(server, db);
-    registerAgentCallbackRoutes(server, db, config, sseManager);
     registerCardRoutes(server, db, config, sseManager);
 
     await createUser(db, 'alice', 'password');
@@ -301,60 +298,6 @@ describe('SSE integration', () => {
       await sse.waitForEvents(1);
       expect(sse.events[0].event).toBe('connected');
       expect(JSON.parse(sse.events[0].data).card_id).toBe(card.id);
-    } finally {
-      sse.close();
-    }
-  });
-
-  it('delivers comment.created event when agent callback fires', async () => {
-    const { db, server, address, sessionCookie } = await createTestApp();
-    const card = createCard(db, { title: 'Test', created_by: 'alice', agent_bot: 'bob' });
-
-    const sse = connectSSE(address, card.id, sessionCookie);
-    try {
-      // Wait for connected event
-      await sse.waitForEvents(1);
-
-      // Fire agent callback
-      await server.inject({
-        method: 'POST',
-        url: `/api/internal/cards/${card.id}/agent-response`,
-        headers: { authorization: `Bearer ${config.bridgeApiKey}` },
-        payload: { content: 'Agent says hello' },
-      });
-
-      // Wait for comment.created event
-      await sse.waitForEvents(2);
-      const commentEvent = sse.events.find((e) => e.event === 'comment.created');
-      expect(commentEvent).toBeDefined();
-      expect(JSON.parse(commentEvent!.data).content).toBe('Agent says hello');
-    } finally {
-      sse.close();
-    }
-  });
-
-  it('delivers run.status event when agent callback completes a run', async () => {
-    const { db, server, address, sessionCookie } = await createTestApp();
-    const card = createCard(db, { title: 'Test', created_by: 'alice', agent_bot: 'bob' });
-    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
-
-    const sse = connectSSE(address, card.id, sessionCookie);
-    try {
-      await sse.waitForEvents(1); // connected
-
-      await server.inject({
-        method: 'POST',
-        url: `/api/internal/cards/${card.id}/agent-response`,
-        headers: { authorization: `Bearer ${config.bridgeApiKey}` },
-        payload: { content: 'Done', run_id: run.id, status: 'completed' },
-      });
-
-      await sse.waitForEvents(3); // connected + comment.created + run.status
-      const runEvent = sse.events.find((e) => e.event === 'run.status');
-      expect(runEvent).toBeDefined();
-      const runData = JSON.parse(runEvent!.data);
-      expect(runData.run_id).toBe(run.id);
-      expect(runData.status).toBe('completed');
     } finally {
       sse.close();
     }
