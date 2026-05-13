@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from './config.js';
 import { createUser, registerAuthRoutes, registerSessionMiddleware } from './auth.js';
-import { createRun } from './cards.js';
+import { createRun, updateRun } from './cards.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { createServer } from './server.js';
 import { registerCardRoutes } from './card-routes.js';
@@ -254,6 +254,7 @@ describe('run routes', () => {
     });
     const { card } = JSON.parse(createRes.body);
     const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+    updateRun(db, run.id, { bridge_run_id: 'br-test-1' });
 
     const resumeRes = await server.inject({
       method: 'POST',
@@ -269,7 +270,7 @@ describe('run routes', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      `http://localhost:7878/v1/runs/${run.id}/resume`,
+      'http://localhost:7878/v1/runs/br-test-1/resume',
       {
         method: 'POST',
         headers: {
@@ -279,6 +280,27 @@ describe('run routes', () => {
         body: JSON.stringify({ decision: 'allow-once' }),
       },
     );
+  });
+
+  it('returns 409 when run has no bridge_run_id', async () => {
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'No bridge run' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${card.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'allow-once' },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({ error: 'run not yet dispatched to bridge' });
   });
 
   it('returns 404 when resuming a run for a nonexistent card', async () => {
@@ -368,6 +390,7 @@ describe('run routes', () => {
     });
     const { card } = JSON.parse(createRes.body);
     const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+    updateRun(db, run.id, { bridge_run_id: 'br-test-2' });
 
     const res = await server.inject({
       method: 'POST',

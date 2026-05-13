@@ -389,8 +389,13 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
       return reply.status(503).send({ error: 'bridge not configured' });
     }
 
+    const bridgeRunId = run.bridge_run_id;
+    if (!bridgeRunId) {
+      return reply.status(409).send({ error: 'run not yet dispatched to bridge' });
+    }
+
     try {
-      const bridgeResponse = await fetch(`${config.bridgeApiUrl}/v1/runs/${run_id}/resume`, {
+      const bridgeResponse = await fetch(`${config.bridgeApiUrl}/v1/runs/${bridgeRunId}/resume`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${config.bridgeApiKey}`,
