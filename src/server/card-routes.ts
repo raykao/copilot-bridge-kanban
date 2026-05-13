@@ -25,6 +25,27 @@ import { subscribeToBridgeRunStream } from './bridge-stream.js';
 import { dispatchToBridge } from './dispatch.js';
 import type { SseManager } from './sse.js';
 
+const resumeDecisions = new Set([
+  'allow-once',
+  'allow-session',
+  'allow-all-session',
+  'allow-all',
+  'deny',
+]);
+
+async function readBridgeResponseBody(response: Response): Promise<unknown> {
+  const text = await response.text().catch(() => '');
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return { error: text };
+  }
+}
+
 export function registerCardRoutes(app: FastifyInstance, db: Database.Database, config?: AppConfig, sseManager?: SseManager): void {
   // -----------------------------------------------------------------------
   // Cards
@@ -331,6 +352,52 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     }
 
     return reply.send({ runs: listRuns(db, id) });
+  });
+
+  app.post('/api/cards/:id/runs/:run_id/resume', async (request, reply) => {
+    const { id, run_id } = request.params as { id: string; run_id: string };
+    const body = (request.body ?? {}) as Record<string, unknown>;
+
+    if (!getCard(db, id)) {
+      return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    const run = listRuns(db, id).find((candidate) => candidate.id === run_id);
+    if (!run) {
+      return reply.status(404).send({ error: 'Run not found' });
+    }
+
+    if (typeof body.decision !== 'string' || !resumeDecisions.has(body.decision)) {
+      return reply.status(400).send({ error: 'invalid decision' });
+    }
+
+    if (!config) {
+      return reply.status(503).send({ error: 'bridge not configured' });
+    }
+
+    try {
+      const bridgeResponse = await fetch(`${config.bridgeApiUrl}/v1/runs/${run_id}/resume`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.bridgeApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ decision: body.decision }),
+      });
+
+      if (bridgeResponse.status === 404 || bridgeResponse.status === 409) {
+        const bridgeBody = await readBridgeResponseBody(bridgeResponse);
+        return reply.status(bridgeResponse.status).send(bridgeBody);
+      }
+
+      if (!bridgeResponse.ok) {
+        return reply.status(502).send({ error: 'bridge unavailable' });
+      }
+
+      return reply.send({ run_id, decision: body.decision });
+    } catch {
+      return reply.status(502).send({ error: 'bridge unavailable' });
+    }
   });
 
   // -----------------------------------------------------------------------

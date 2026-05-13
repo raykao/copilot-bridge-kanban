@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from './config.js';
 import { createUser, registerAuthRoutes, registerSessionMiddleware } from './auth.js';
+import { createRun } from './cards.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { createServer } from './server.js';
 import { registerCardRoutes } from './card-routes.js';
@@ -20,13 +21,16 @@ const config: AppConfig = {
 const apps: Array<{ db: Database.Database; server: FastifyInstance }> = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+
   for (const { db, server } of apps.splice(0)) {
     await server.close();
     db.close();
   }
 });
 
-async function createTestApp(): Promise<{
+async function createTestApp(options: { registerBridge?: boolean } = {}): Promise<{
   db: Database.Database;
   server: FastifyInstance;
   sessionCookie: string;
@@ -37,7 +41,7 @@ async function createTestApp(): Promise<{
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
   registerAuthRoutes(server, db);
-  registerCardRoutes(server, db);
+  registerCardRoutes(server, db, options.registerBridge ? config : undefined);
 
   await createUser(db, 'alice', 'password');
 
@@ -232,6 +236,149 @@ describe('comment routes', () => {
     expect(runs).toHaveLength(1);
     expect(runs[0].agent_name).toBe('bob');
     expect(runs[0].input_comment_id).toBe(body.comment.id);
+  });
+});
+
+describe('run routes', () => {
+  it('resumes a run through the bridge', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Awaiting permission' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+
+    const resumeRes = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${card.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'allow-once' },
+    });
+
+    expect(resumeRes.statusCode).toBe(200);
+    expect(JSON.parse(resumeRes.body)).toEqual({
+      run_id: run.id,
+      decision: 'allow-once',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:7878/v1/runs/${run.id}/resume`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test-key',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ decision: 'allow-once' }),
+      },
+    );
+  });
+
+  it('returns 404 when resuming a run for a nonexistent card', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { server, sessionCookie } = await createTestApp({ registerBridge: true });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: '/api/cards/missing/runs/run-1/resume',
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'allow-once' },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Card not found' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the run does not belong to the card', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const cardARes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Card A' },
+    });
+    const cardBRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Card B' },
+    });
+    const { card: cardA } = JSON.parse(cardARes.body);
+    const { card: cardB } = JSON.parse(cardBRes.body);
+    const run = createRun(db, { card_id: cardB.id, agent_name: 'bob' });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${cardA.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'allow-once' },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Run not found' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when the resume decision is invalid', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Invalid decision' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${card.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'forever' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'invalid decision' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 when the bridge resume request fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('connect ECONNREFUSED');
+    }));
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Bridge down' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${card.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'deny' },
+    });
+
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body)).toEqual({ error: 'bridge unavailable' });
   });
 });
 
