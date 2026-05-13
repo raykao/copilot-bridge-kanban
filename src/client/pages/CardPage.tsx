@@ -17,7 +17,7 @@ export function CardPage() {
 
   const agentsQuery = useQuery({
     queryKey: ['agents'],
-    queryFn: () => api.agents.list(),
+    queryFn: () => api.agents.cards(),
   });
 
   if (cardQuery.isPending || agentsQuery.isPending) {
@@ -38,7 +38,7 @@ export function CardPage() {
   }
 
   const cardDetail = cardQuery.data;
-  const agents = agentsQuery.data ?? [];
+  const agents = agentsQuery.data?.cards ?? [];
 
   if (!cardDetail) {
     return (

@@ -24,7 +24,7 @@ export function BoardPage() {
 
   const agentsQuery = useQuery({
     queryKey: ['agents'],
-    queryFn: () => api.agents.list(),
+    queryFn: () => api.agents.cards(),
     staleTime: 60_000,
   });
 
@@ -33,7 +33,7 @@ export function BoardPage() {
     queryFn: () => api.cards.list(),
   });
 
-  const agents = agentsQuery.data ?? [];
+  const agents = agentsQuery.data?.cards ?? [];
   const cards = cardsQuery.data ?? [];
   const filteredCards = useMemo(() => applyFilters(cards, filters), [cards, filters]);
 
@@ -41,12 +41,12 @@ export function BoardPage() {
     () =>
       [...agents]
         .sort((left, right) => left.name.localeCompare(right.name))
-        .map((agent) => ({
-          id: agent.name,
-          title: agent.name,
+        .map((agentCard) => ({
+          id: agentCard.name,
+          title: agentCard.name,
           cards: sortCards(
             filteredCards.filter(
-              (card) => card.agent_bot === agent.name && card.status !== 'archived',
+              (card) => card.agent_bot === agentCard.name && card.status !== 'archived',
             ),
           ),
         })),

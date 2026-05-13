@@ -43,12 +43,14 @@ function NavItem({
   label,
   active,
   onNavigate,
+  title,
 }: {
   href: string;
   icon: LucideIcon;
   label: string;
   active: boolean;
   onNavigate?: () => void;
+  title?: string;
 }) {
   return (
       <Link
@@ -59,6 +61,7 @@ function NavItem({
             : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
       )}
       onClick={onNavigate}
+      title={title}
       to={href}
     >
       <Icon className="size-4" />
@@ -73,12 +76,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { logout } = useAuth();
   const { data: agents, isLoading, isError } = useQuery({
     queryKey: ['agents'],
-    queryFn: () => api.agents.list(),
+    queryFn: () => api.agents.cards(),
     staleTime: 60_000,
   });
 
   const sortedAgents = useMemo(
-    () => (agents ? [...agents].sort((a, b) => a.name.localeCompare(b.name)) : []),
+    () => (agents ? [...agents.cards].sort((a, b) => a.name.localeCompare(b.name)) : []),
     [agents],
   );
 
@@ -140,17 +143,18 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               <p className="px-3 py-2 text-sm text-muted-foreground">No agents found.</p>
             ) : null}
 
-            {sortedAgents.map((agent) => {
-              const href = `/chat/${encodeURIComponent(agent.name)}`;
+            {sortedAgents.map((card) => {
+              const href = `/chat/${encodeURIComponent(card.name)}`;
 
               return (
                 <NavItem
                   active={location.pathname === href}
                   href={href}
                   icon={MessageSquare}
-                  key={agent.name}
-                  label={agent.name}
+                  key={card.name}
+                  label={card.name}
                   onNavigate={onNavigate}
+                  title={card.description}
                 />
               );
             })}

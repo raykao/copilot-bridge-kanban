@@ -1,5 +1,6 @@
 import type {
   Agent,
+  AgentCard,
   AuthUser,
   Card,
   CardComment,
@@ -151,6 +152,10 @@ const agents = {
   async list(): Promise<Agent[]> {
     const data = await apiFetch<unknown>('/api/agents');
     return unwrapArray<Agent>(data, 'agents');
+  },
+
+  cards(): Promise<{ cards: AgentCard[] }> {
+    return apiFetch<{ cards: AgentCard[] }>('/api/agents/cards');
   },
 
   get(name: string): Promise<Agent> {

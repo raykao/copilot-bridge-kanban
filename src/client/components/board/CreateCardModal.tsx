@@ -37,11 +37,13 @@ export function CreateCardModal({ open, onOpenChange }: CreateCardModalProps) {
   const [titleError, setTitleError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const { data: agents = [] } = useQuery({
+  const { data: agentCards } = useQuery({
     queryKey: ['agents'],
-    queryFn: () => api.agents.list(),
+    queryFn: () => api.agents.cards(),
     staleTime: 60_000,
   });
+
+  const agents = agentCards?.cards ?? [];
 
   const createCardMutation = useMutation({
     mutationFn: (card: {
@@ -153,9 +155,9 @@ export function CreateCardModal({ open, onOpenChange }: CreateCardModalProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={noAgentValue}>None</SelectItem>
-                  {agents.map((item) => (
-                    <SelectItem key={item.name} value={item.name}>
-                      {item.name}
+                  {agents.map((card) => (
+                    <SelectItem key={card.name} title={card.description} value={card.name}>
+                      {card.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
