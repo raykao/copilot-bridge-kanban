@@ -100,7 +100,6 @@ export interface Run {
   agent_name: string;
   status: "created" | "running" | "awaiting" | "completed" | "failed";
   bridge_run_id: string | null;
-  bridge_session_id: string | null;
   input_comment_id: string | null;
   error: string | null;
   created_at: string;
