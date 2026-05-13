@@ -1,9 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 
 import { api } from '@/api/client';
-import type { Run } from '@/api/types';
+import type { ResumeDecision, Run, ToolCall } from '@/api/types';
 import { Button } from '@/components/ui/button';
+import { useCardEvents } from '@/hooks/useCardEvents';
 import { cn } from '@/lib/utils';
 
 export interface RunDetailDrawerProps {
@@ -35,6 +37,21 @@ function getRunStatusBadgeClassName(status: RunStatus): string {
   }
 }
 
+function getToolStatusLabel(status: ToolCall['status']): string {
+  switch (status) {
+    case 'pending':
+      return 'running';
+    case 'completed':
+      return 'done';
+    case 'failed':
+      return 'error';
+  }
+}
+
+function formatJson(value: unknown): string {
+  return JSON.stringify(value, null, 2) ?? '';
+}
+
 export function RunDetailDrawer({
   open,
   onClose,
@@ -42,12 +59,38 @@ export function RunDetailDrawer({
   cardTitle,
   runId,
 }: RunDetailDrawerProps) {
+  const [isResuming, setIsResuming] = useState<boolean>(false);
+  const logEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const streaming = useCardEvents({ cardId, enabled: open });
   const { data } = useQuery({
     queryKey: ['run', cardId, runId],
     queryFn: () => api.runs.get(cardId, runId!),
     enabled: open && runId != null,
   });
   const run = data?.run ?? null;
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    if (isNearBottom) {
+      logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [streaming]);
+
+  const handleResume = async (decision: ResumeDecision) => {
+    if (!runId) {
+      return;
+    }
+
+    setIsResuming(true);
+    try {
+      await api.runs.resume(cardId, runId, decision);
+    } finally {
+      setIsResuming(false);
+    }
+  };
 
   return (
     <>
@@ -87,8 +130,67 @@ export function RunDetailDrawer({
           </Button>
         </header>
 
-        <div className="flex-1 overflow-y-auto">
-          <p className="text-sm text-muted-foreground p-4">Loading run details...</p>
+        <div ref={scrollContainerRef} className="flex-1 space-y-3 overflow-y-auto p-4">
+          {streaming.isStreaming || streaming.content ? (
+            <>
+              <div className="text-xs text-muted-foreground">Agent started</div>
+              {streaming.content ? (
+                <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs">{streaming.content}</pre>
+              ) : null}
+            </>
+          ) : null}
+
+          {streaming.toolCalls.map((toolCall) => (
+            <details key={toolCall.id} className="rounded border p-2 text-sm" open>
+              <summary>Tool: {toolCall.name}</summary>
+              <div className="mt-2 space-y-2">
+                <div className="text-xs text-muted-foreground">Status: {getToolStatusLabel(toolCall.status)}</div>
+                <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs">{formatJson(toolCall.input)}</pre>
+                {toolCall.status === 'completed' ? (
+                  <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs">{formatJson(toolCall.output)}</pre>
+                ) : null}
+                {toolCall.status === 'failed' ? (
+                  <pre className="whitespace-pre-wrap rounded bg-muted p-2 text-xs text-red-600">
+                    {formatJson(toolCall.error)}
+                  </pre>
+                ) : null}
+              </div>
+            </details>
+          ))}
+
+          {streaming.awaitingPermission ? (
+            <div className="space-y-2 border-l-4 border-yellow-400 py-2 pl-3">
+              <div className="text-sm font-medium">Permission required: {streaming.awaitingPermission.tool}</div>
+              {streaming.awaitingPermission.detail ? (
+                <div className="text-sm text-muted-foreground">{streaming.awaitingPermission.detail}</div>
+              ) : null}
+              <div className="flex gap-2">
+                <Button
+                  disabled={isResuming || !runId}
+                  onClick={() => void handleResume('allow-once')}
+                  type="button"
+                >
+                  Approve
+                </Button>
+                <Button
+                  disabled={isResuming || !runId}
+                  onClick={() => void handleResume('deny')}
+                  type="button"
+                  variant="outline"
+                >
+                  Deny
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {run?.status === 'completed' ? (
+            <div className="text-sm font-medium text-green-600">Run completed</div>
+          ) : null}
+          {run?.status === 'failed' ? (
+            <div className="text-sm font-medium text-red-600">Run failed: {run.error}</div>
+          ) : null}
+          <div ref={logEndRef} />
         </div>
       </aside>
     </>
