@@ -354,6 +354,20 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     return reply.send({ runs: listRuns(db, id) });
   });
 
+  app.get('/api/cards/:id/runs/:run_id', async (request, reply) => {
+    const { id, run_id } = request.params as { id: string; run_id: string };
+    if (!getCard(db, id)) {
+      return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    const run = listRuns(db, id).find((candidate) => candidate.id === run_id);
+    if (!run) {
+      return reply.status(404).send({ error: 'run not found' });
+    }
+
+    return reply.send({ run });
+  });
+
   app.post('/api/cards/:id/runs/:run_id/resume', async (request, reply) => {
     const { id, run_id } = request.params as { id: string; run_id: string };
     const body = (request.body ?? {}) as Record<string, unknown>;
