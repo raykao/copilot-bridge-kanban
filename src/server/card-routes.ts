@@ -22,7 +22,6 @@ import {
   type CardFilter,
 } from './cards.js';
 import { subscribeToBridgeRunStream } from './bridge-stream.js';
-import { dispatchToBridge } from './dispatch.js';
 import type { SseManager } from './sse.js';
 
 const resumeDecisions = new Set([
@@ -111,36 +110,47 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
         const bot = card.agent_bot;
         const prompt = card.description;
 
-        void (async () => {
-          const dispatchResult = await dispatchToBridge(config, db, {
-            bot,
-            prompt,
-            cardId: card.id,
-            runId: run.id,
-          });
-          if (dispatchResult.ok && dispatchResult.bridgeRunId && sseManager) {
-            subscribeToBridgeRunStream({
-              bridgeApiUrl: config.bridgeApiUrl,
-              bridgeApiKey: config.bridgeApiKey,
-              runId: dispatchResult.bridgeRunId,
-              bot,
-              prompt,
-              cardId: card.id,
-              onEvent: (event) => {
-                sseManager.emit(card.id, event.type, event.data);
-                if (event.type === 'run.awaiting') {
-                  updateRun(db, run.id, { status: 'awaiting' });
-                } else if (event.type === 'run.completed') {
-                  updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
-                } else if (event.type === 'run.failed') {
-                  updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
-                }
-              },
-              onClose: () => {},
+        subscribeToBridgeRunStream({
+          bridgeApiUrl: config.bridgeApiUrl,
+          bridgeApiKey: config.bridgeApiKey,
+          runId: run.id,
+          bot,
+          prompt,
+          cardId: card.id,
+          onReady: (bridgeRunId) => {
+            updateRun(db, run.id, { status: 'running', bridge_run_id: bridgeRunId });
+          },
+          onError: (status, errBody) => {
+            updateRun(db, run.id, {
+              status: 'failed',
+              finished_at: new Date().toISOString(),
+              error: `Bridge stream failed: ${status} ${errBody}`,
             });
-          }
-        })().catch((err) => {
-          app.log.error({ err, cardId: card.id, runId: run.id }, 'dispatch failed');
+            app.log.error({ status, body: errBody, cardId: card.id, runId: run.id }, 'bridge stream failed');
+          },
+          onEvent: (event) => {
+            sseManager?.emit(card.id, event.type, event.data);
+            if (event.type === 'run.awaiting') {
+              updateRun(db, run.id, { status: 'awaiting' });
+            } else if (event.type === 'run.completed') {
+              updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
+            } else if (event.type === 'run.failed') {
+              updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
+            } else if (event.type === 'message.completed') {
+              const content = (event.data.content as string) ?? '';
+              if (content !== '') {
+                const agentComment = addComment(db, {
+                  card_id: card.id,
+                  author_kind: 'agent',
+                  author_id: bot,
+                  content,
+                  run_id: run.id,
+                });
+                sseManager?.emit(card.id, 'comment.created', agentComment);
+              }
+            }
+          },
+          onClose: () => {},
         });
       }
     }
@@ -267,7 +277,7 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
 
     sseManager?.emit(id, 'comment.created', comment);
 
-    // If card has an assigned agent, create a run for dispatch
+    // If card has an assigned agent, create a run and stream the response
     let run_id: string | undefined;
     if (card.agent_bot) {
       const run = createRun(db, {
@@ -280,36 +290,47 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
       if (config) {
         const bot = card.agent_bot;
         // Fire-and-forget dispatch -- don't block the response
-        void (async () => {
-          const dispatchResult = await dispatchToBridge(config, db, {
-            bot,
-            prompt: body.content as string,
-            cardId: id,
-            runId: run.id,
-          });
-          if (dispatchResult.ok && dispatchResult.bridgeRunId && sseManager) {
-            subscribeToBridgeRunStream({
-              bridgeApiUrl: config.bridgeApiUrl,
-              bridgeApiKey: config.bridgeApiKey,
-              runId: dispatchResult.bridgeRunId,
-              bot,
-              prompt: body.content as string,
-              cardId: id,
-              onEvent: (event) => {
-                sseManager.emit(id, event.type, event.data);
-                if (event.type === 'run.awaiting') {
-                  updateRun(db, run.id, { status: 'awaiting' });
-                } else if (event.type === 'run.completed') {
-                  updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
-                } else if (event.type === 'run.failed') {
-                  updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
-                }
-              },
-              onClose: () => {},
+        subscribeToBridgeRunStream({
+          bridgeApiUrl: config.bridgeApiUrl,
+          bridgeApiKey: config.bridgeApiKey,
+          runId: run.id,
+          bot,
+          prompt: body.content as string,
+          cardId: id,
+          onReady: (bridgeRunId) => {
+            updateRun(db, run.id, { status: 'running', bridge_run_id: bridgeRunId });
+          },
+          onError: (status, errBody) => {
+            updateRun(db, run.id, {
+              status: 'failed',
+              finished_at: new Date().toISOString(),
+              error: `Bridge stream failed: ${status} ${errBody}`,
             });
-          }
-        })().catch((err) => {
-          app.log.error({ err, cardId: id, runId: run.id }, 'dispatch failed');
+            app.log.error({ status, body: errBody, cardId: id, runId: run.id }, 'bridge stream failed');
+          },
+          onEvent: (event) => {
+            sseManager?.emit(id, event.type, event.data);
+            if (event.type === 'run.awaiting') {
+              updateRun(db, run.id, { status: 'awaiting' });
+            } else if (event.type === 'run.completed') {
+              updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
+            } else if (event.type === 'run.failed') {
+              updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
+            } else if (event.type === 'message.completed') {
+              const content = (event.data.content as string) ?? '';
+              if (content !== '') {
+                const agentComment = addComment(db, {
+                  card_id: id,
+                  author_kind: 'agent',
+                  author_id: bot,
+                  content,
+                  run_id: run.id,
+                });
+                sseManager?.emit(id, 'comment.created', agentComment);
+              }
+            }
+          },
+          onClose: () => {},
         });
       }
     }

@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from './config.js';
 import { createUser, registerAuthRoutes, registerSessionMiddleware } from './auth.js';
-import { createRun, updateRun } from './cards.js';
+import { createRun, listComments, listRuns, updateRun } from './cards.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { createServer } from './server.js';
 import { registerCardRoutes } from './card-routes.js';
@@ -638,5 +638,127 @@ describe('card creation with agent', () => {
     expect(detail.comments).toHaveLength(1);
     expect(detail.comments[0].content).toBe('Build the thing');
     expect(detail.comments[0].author_kind).toBe('human');
+  });
+});
+
+describe('bridge streaming integration', () => {
+  function makeSseStream(chunks: string[]): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      },
+    });
+  }
+
+  async function waitForCondition(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+    const start = Date.now();
+    while (!condition()) {
+      if (Date.now() - start > timeoutMs) {
+        throw new Error('Timed out waiting for condition');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  it('persists agent reply as card comment and sets bridge_run_id when message.completed fires', async () => {
+    const sseChunks = [
+      'event: task\ndata: {"kind":"task","id":"bridge-run-99","contextId":"PLACEHOLDER"}\n\n',
+      'event: artifact-update\ndata: {"taskId":"bridge-run-99","artifact":{"parts":[{"kind":"text","text":"hello"}]},"lastChunk":true}\n\n',
+      'event: status-update\ndata: {"taskId":"bridge-run-99","status":{"state":"completed"}}\n\n',
+    ];
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      body: makeSseStream(sseChunks),
+    })));
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Stream card', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const commentRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/comments`,
+      headers: { cookie: sessionCookie },
+      payload: { content: 'do the thing' },
+    });
+    expect(commentRes.statusCode).toBe(201);
+    const { run_id } = JSON.parse(commentRes.body);
+
+    // Wait for async SSE processing to complete
+    await waitForCondition(() => {
+      const comments = listComments(db, card.id);
+      return comments.some((c) => c.author_kind === 'agent');
+    });
+
+    const comments = listComments(db, card.id);
+    const agentComment = comments.find((c) => c.author_kind === 'agent');
+    expect(agentComment).toBeDefined();
+    expect(agentComment!.content).toBe('hello');
+    expect(agentComment!.author_id).toBe('bob');
+    expect(agentComment!.run_id).toBe(run_id);
+
+    const runs = listRuns(db, card.id);
+    const run = runs.find((r) => r.id === run_id)!;
+    expect(run.bridge_run_id).toBe('bridge-run-99');
+    expect(run.status).toBe('completed');
+  });
+
+  it('sets run status to running with bridge_run_id when onReady fires', async () => {
+    // Stream stalls after task frame - we verify the run is updated before completion
+    let resolveStream!: () => void;
+    const streamDone = new Promise<void>((resolve) => { resolveStream = resolve; });
+    const encoder = new TextEncoder();
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(encoder.encode(
+            'event: task\ndata: {"kind":"task","id":"bridge-run-55","contextId":"PLACEHOLDER"}\n\n',
+          ));
+          // Wait briefly then close
+          await streamDone;
+          controller.close();
+        },
+      }),
+    })));
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Ready test card', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const commentRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/comments`,
+      headers: { cookie: sessionCookie },
+      payload: { content: 'ping' },
+    });
+    const { run_id } = JSON.parse(commentRes.body);
+
+    // Wait for onReady to update the run
+    await waitForCondition(() => {
+      const runs = listRuns(db, card.id);
+      const run = runs.find((r) => r.id === run_id);
+      return run?.bridge_run_id === 'bridge-run-55';
+    });
+
+    resolveStream();
+
+    const runs = listRuns(db, card.id);
+    const run = runs.find((r) => r.id === run_id)!;
+    expect(run.bridge_run_id).toBe('bridge-run-55');
+    expect(run.status).toBe('running');
   });
 });

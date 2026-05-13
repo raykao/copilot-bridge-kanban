@@ -18,6 +18,7 @@ export interface BridgeEvent {
 export interface BridgeStreamOptions {
   bridgeApiUrl: string;
   bridgeApiKey: string;
+  /** Logical request id; sent as A2A messageId on the wire. */
   runId: string;
   bot: string;
   prompt: string;
@@ -25,6 +26,10 @@ export interface BridgeStreamOptions {
   messageId?: string;
   onEvent: (event: BridgeEvent) => void;
   onClose: () => void;
+  /** Called with the bridge task id when the first `task` SSE frame is received. */
+  onReady?: (bridgeRunId: string) => void;
+  /** Called when the stream fails (non-ok response or thrown exception). status=0 means exception. */
+  onError?: (status: number, body: string) => void;
 }
 
 const bridgeEventTypes = new Set<string>([
@@ -178,7 +183,14 @@ export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => voi
         signal: controller.signal,
       });
 
-      if (!response.ok || !response.body) {
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => 'unknown error');
+        opts.onError?.(response.status, errorBody);
+        closeOnce();
+        return;
+      }
+
+      if (!response.body) {
         closeOnce();
         return;
       }
@@ -197,6 +209,10 @@ export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => voi
           const event = parseFrame(frame);
           if (!event) continue;
 
+          if (event.type === 'run.created' && opts.onReady) {
+            opts.onReady(event.data.run_id as string);
+          }
+
           opts.onEvent(event);
           if (event.type === 'run.completed' || event.type === 'run.failed') {
             closeOnce();
@@ -206,7 +222,8 @@ export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => voi
       }
 
       closeOnce();
-    } catch {
+    } catch (err) {
+      opts.onError?.(0, err instanceof Error ? err.message : 'unknown error');
       closeOnce();
     }
   })();

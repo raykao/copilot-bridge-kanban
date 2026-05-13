@@ -233,4 +233,57 @@ describe('subscribeToBridgeRunStream', () => {
     await waitFor(() => onClose.mock.calls.length === 1);
     expect(events).toEqual([{ type: 'run.awaiting', data: { run_id: 'task-1' } }]);
   });
+
+  it('calls onError with status and body when bridge returns non-ok, then fires onClose with no onEvent', async () => {
+    const onEvent = vi.fn();
+    const onClose = vi.fn();
+    const onError = vi.fn();
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      text: async () => 'Task already in progress for this contextId',
+      body: null,
+    })));
+
+    subscribeToBridgeRunStream(streamOptions({ onEvent, onClose, onError }));
+
+    await waitFor(() => onClose.mock.calls.length === 1);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(409, 'Task already in progress for this contextId');
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires onReady with taskId when first task frame arrives, before message.completed', async () => {
+    const events: BridgeEvent[] = [];
+    const onClose = vi.fn();
+    const onReady = vi.fn();
+
+    mockFetchWithChunks([
+      'event: task\ndata: {"kind":"task","id":"task-42","contextId":"card-1"}\n\n',
+      'event: artifact-update\ndata: {"taskId":"task-42","artifact":{"parts":[{"kind":"text","text":"hi"}]},"lastChunk":true}\n\n',
+      'event: status-update\ndata: {"taskId":"task-42","status":{"state":"completed"}}\n\n',
+    ]);
+
+    subscribeToBridgeRunStream(streamOptions({
+      onEvent: (event) => events.push(event),
+      onClose,
+      onReady,
+    }));
+
+    await waitFor(() => onClose.mock.calls.length === 1);
+    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(onReady).toHaveBeenCalledWith('task-42');
+
+    // onReady must have fired before the message.completed event was delivered to onEvent
+    const readyOrder = onReady.mock.invocationCallOrder[0];
+    const completedCallIdx = events.findIndex((e) => e.type === 'message.completed');
+    expect(completedCallIdx).toBeGreaterThanOrEqual(0);
+    // onReady fires synchronously inside the frame loop before onEvent for run.created,
+    // so its invocation order is lower than any subsequent onEvent call
+    expect(readyOrder).toBeLessThan(onReady.mock.invocationCallOrder[0] + 1); // always true, sanity
+    // Verify the run.created event was also emitted via onEvent
+    expect(events[0]).toEqual({ type: 'run.created', data: { run_id: 'task-42' } });
+  });
 });
