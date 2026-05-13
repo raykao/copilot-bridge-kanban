@@ -1,220 +1,668 @@
-# Tasks: Consolidate Client/Server (Issue #1)
+# Kanban ACP Refactor Tasks
 
-Relates to: raykao/copilot-bridge-kanban#1
+Relates to: raykao/copilot-bridge-kanban#1, #4
+Bridge ref: ChrisRomp/copilot-bridge#216 (ACP /runs routes)
 
-## Phase 0: Scaffold New Structure
-
-### t0 - Create unified package.json and tsconfig
-
-**Goal:** Replace workspaces with a single root package.json that has all dependencies from both packages. Create tsconfig files for server and client.
-
-**Steps:**
-1. Create new root `package.json` (non-workspace) combining all deps from `packages/server/package.json` and `packages/client/package.json`
-2. Keep `name: "@copilot-bridge/kanban"`, `version: "0.2.0"`
-3. Scripts: `"dev"`, `"build"`, `"start"`, `"test"`, `"lint"`, `"cli"`
-4. Create `tsconfig.server.json` extending `tsconfig.base.json` targeting `src/server/`
-5. Create `tsconfig.client.json` (Vite handles this but needed for IDE)
-6. Run `npm install` -- must succeed with no errors
-
-**Validation:** `npm install` exits 0, `node -e "require('./package.json')"` succeeds
+All tasks must be implemented against the existing code patterns shown in each spec.
+Validation command must exit 0 before the task is considered done.
 
 ---
 
-### t1 - Move server source to src/server/
+## t0 - Add bridge_run_id column and awaiting status
 
-**Goal:** Relocate `packages/server/src/*.ts` to `src/server/` preserving all file contents exactly.
+**Goal:** Extend the runs schema and types to hold the bridge-assigned run ID and the
+new `awaiting` status (used when the agent is blocked on a permission prompt).
 
-**Steps:**
-1. `mkdir -p src/server`
-2. Copy all `.ts` files from `packages/server/src/` to `src/server/` (not test files yet)
-3. Copy `packages/server/cli/` to `src/cli/`
-4. Update any relative import paths that reference `../../client/dist` to point to `dist/client/`
-5. Ensure `src/server/index.ts` is the entry point
+**Files to read:**
+- `src/server/db.ts` - schema definition in `initializeSchema`
+- `src/server/cards.ts` - `Run` interface, `updateRun`, `createRun`
 
-**Validation:** `npx tsc --noEmit -p tsconfig.server.json` exits 0
+**Files to modify:**
+- `src/server/db.ts`
+- `src/server/cards.ts`
 
----
+**Changes:**
 
-### t2 - Move client source to src/client/
+In `db.ts`, add `bridge_run_id TEXT` column to the runs CREATE TABLE (after `bridge_session_id`):
+```sql
+bridge_run_id TEXT,
+bridge_session_id TEXT,
+```
 
-**Goal:** Relocate `packages/client/src/` to `src/client/` preserving all file contents exactly.
+In `cards.ts`, update the `Run` interface:
+```ts
+export interface Run {
+  id: string;
+  card_id: string;
+  agent_name: string;
+  status: 'created' | 'running' | 'awaiting' | 'completed' | 'failed';
+  bridge_run_id: string | null;    // ADD
+  bridge_session_id: string | null;
+  input_comment_id: string | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+```
 
-**Steps:**
-1. `mkdir -p src/client`
-2. Copy entire `packages/client/src/` tree to `src/client/`
-3. Move `packages/client/index.html` to root `index.html`
-4. Move `packages/client/vite.config.ts` to root `vite.config.ts`
-5. Update vite.config.ts: `root` stays as `.`, resolve alias `@` points to `src/client`
-6. Update `index.html` script src to reference `src/client/main.tsx`
+In `cards.ts`, add `'bridge_run_id'` to the `allowed` array in `updateRun`:
+```ts
+const allowed = ['status', 'bridge_run_id', 'bridge_session_id', 'error', 'finished_at'] as const;
+```
 
-**Validation:** `npx tsc --noEmit -p tsconfig.client.json` exits 0
-
----
-
-### t3 - Move test files
-
-**Goal:** Relocate all test files to new locations alongside their source.
-
-**Steps:**
-1. Move `packages/server/src/*.test.ts` to `src/server/`
-2. Move `packages/client/src/**/*.test.ts` (if any) to `src/client/`
-3. Create root `vitest.config.ts` with two projects: `{ test: { include: ['src/server/**/*.test.ts'] } }` and `{ test: { include: ['src/client/**/*.test.ts'] } }`
-4. Update any import paths in test files
-
-**Validation:** `npx vitest run` passes all existing tests
-
----
-
-## Phase 1: Wire Unified Dev Server
-
-### t4 - Implement Vite middleware mode in dev
-
-**Goal:** In development, Fastify loads Vite as middleware so HMR and API share one port.
-
-**Steps:**
-1. Create `src/server/dev.ts` that:
-   - Imports `createServer` from `vite` (dynamic import so prod doesn't load it)
-   - Creates vite dev server in middleware mode: `{ server: { middlewareMode: true }, appType: 'spa' }`
-   - Returns a Fastify plugin that registers `vite.middlewares` via `app.use()` (requires `@fastify/middie`)
-2. Add `@fastify/middie` as a dev dependency
-3. In `src/server/index.ts`, detect `NODE_ENV !== 'production'`:
-   - If dev: register middie plugin, then register vite middleware
-   - If prod: use existing `@fastify/static` serving from `dist/client/`
-4. Remove the old `packages/client/vite.config.ts` server.proxy block (no longer needed)
-
-**Validation:** `npm run dev` starts, `curl http://localhost:3000` returns HTML with Vite HMR script, `curl http://localhost:3000/api/health` returns `{"status":"ok"}`
+**Done criteria:**
+```bash
+npx tsc --noEmit -p tsconfig.server.json   # exits 0
+npx vitest run src/server/cards.test.ts    # exits 0
+```
 
 ---
 
-### t5 - Update vite.config.ts for unified build
+## t1 - Rewrite dispatch.ts to POST /v1/runs
 
-**Goal:** Configure Vite build to output to `dist/client/`.
+**Goal:** Replace the old `POST /v1/agent/execute` + callback URL pattern with the ACP
+`POST /v1/runs` endpoint. Remove all callback_url references.
 
-**Steps:**
-1. Update root `vite.config.ts`:
-   - `build.outDir` = `dist/client`
-   - `build.emptyOutDir` = true
-   - Remove any proxy config
-   - Keep react plugin and `@` alias
-2. Verify `index.html` at root references `src/client/main.tsx`
+**Files to read:**
+- `src/server/dispatch.ts` - current implementation (replace entirely)
+- `src/server/config.ts` - `AppConfig` type (use `bridgeApiUrl`, `bridgeApiKey`)
+- `src/server/cards.ts` - `updateRun` signature
 
-**Validation:** `npx vite build` succeeds, `dist/client/index.html` exists, `dist/client/assets/` has JS/CSS bundles
+**Files to modify:**
+- `src/server/dispatch.ts`
 
----
+**New interface shape:**
 
-### t6 - Update server build
+```ts
+export interface DispatchOptions {
+  bot: string;
+  prompt: string;
+  cardId: string;   // used as ACP channel_id
+  runId: string;    // kanban-side run ID (for updateRun calls)
+}
 
-**Goal:** Server compiles to `dist/server/` via tsc.
+export interface DispatchResult {
+  ok: boolean;
+  bridgeRunId?: string;   // ACP run_id returned by bridge (= CLI sessionId)
+  error?: string;
+}
+```
 
-**Steps:**
-1. `tsconfig.server.json`: set `outDir: "dist/server"`, `rootDir: "src/server"`
-2. Add build script: `"build:server": "tsc -p tsconfig.server.json"`
-3. Add combined: `"build": "npm run build:server && vite build"`
-4. Update `src/server/server.ts` static path resolution: in prod, client dist is at `../../dist/client` relative to `dist/server/server.js`
+**New request to bridge:**
+```ts
+// POST ${config.bridgeApiUrl}/v1/runs
+// Authorization: Bearer ${config.bridgeApiKey}
+// Body:
+{
+  bot: opts.bot,
+  channel_id: opts.cardId,
+  prompt: opts.prompt,
+}
+// Expected response: { run_id: string, status: string }
+```
 
-**Validation:** `npm run build` exits 0, `dist/server/index.js` exists, `dist/client/index.html` exists
+**On success:** call `updateRun(db, opts.runId, { status: 'running', bridge_run_id: result.run_id })`
+**On HTTP error or thrown error:** call `updateRun(db, opts.runId, { status: 'failed', error: ... })`
 
----
+**Remove:** all references to `callback_url`, `kanbanBaseUrl`, `session_id`.
 
-### t7 - Wire npm scripts
-
-**Goal:** All npm scripts work correctly.
-
-**Steps:**
-1. `"dev"`: `NODE_ENV=development tsx src/server/index.ts`
-2. `"build"`: `tsc -p tsconfig.server.json && vite build`
-3. `"start"`: `NODE_ENV=production node dist/server/index.js`
-4. `"test"`: `vitest run`
-5. `"lint"`: `tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.client.json`
-6. `"cli"`: `tsx src/cli/manage-users.ts`
-
-**Validation:** Each script runs successfully
-
----
-
-## Phase 2: Cleanup and Polish
-
-### t8 - Remove old packages/ directory
-
-**Goal:** Delete the old workspace structure.
-
-**Steps:**
-1. Remove `packages/` directory entirely
-2. Remove `"workspaces"` field from package.json
-3. Remove any `packages/*/tsconfig.json` references
-4. Verify `npm install` still works (lock file may need regenerating)
-
-**Validation:** `ls packages` fails (doesn't exist), `npm install` exits 0, `npm run build` exits 0, `npm test` passes
+**Done criteria:**
+```bash
+npx tsc --noEmit -p tsconfig.server.json   # exits 0
+```
 
 ---
 
-### t9 - Update Dockerfile
+## t2a - New bridge-stream.ts: SSE consumer
 
-**Goal:** Dockerfile reflects new single-package structure.
+**Goal:** Create a module that subscribes to `GET /v1/runs/:run_id/stream` on the bridge
+using native fetch streaming (Node 24 has native fetch). Parse SSE frames and call a
+callback for each event. Auto-stops when the stream ends or a terminal event is received.
 
-**Steps:**
-1. Remove workspace-specific COPY lines for `packages/server/package.json` and `packages/client/package.json`
-2. COPY `package.json`, `package-lock.json`, `tsconfig.base.json`, `tsconfig.server.json`, `index.html`, `vite.config.ts`
-3. `RUN npm ci`
-4. COPY `src/` directory
-5. `RUN npm run build`
-6. Production stage: `npm ci --omit=dev`, copy `dist/` from build stage
-7. CMD: `["node", "dist/server/index.js"]`
-8. Keep existing HEALTHCHECK
+**Files to read:**
+- `src/server/sse.ts` - `SseManager.emit` signature (this is what we relay into)
+- `src/server/cards.ts` - `Run` type, status values
 
-**Validation:** `docker build -t kanban-test .` succeeds, `docker run --rm -e BRIDGE_API_URL=http://host.docker.internal:7878 -e BRIDGE_API_KEY=test -e SESSION_SECRET=test -p 3000:3000 kanban-test` serves both API and client
+**File to create:**
+- `src/server/bridge-stream.ts`
+
+**Interface to implement:**
+
+```ts
+export type BridgeEventType =
+  | 'run.queued'
+  | 'run.in_progress'
+  | 'run.awaiting'
+  | 'run.completed'
+  | 'run.failed'
+  | 'run.text_delta'
+  | 'tool.start'
+  | 'tool.end';
+
+export interface BridgeEvent {
+  type: BridgeEventType;
+  data: Record<string, unknown>;
+}
+
+export interface BridgeStreamOptions {
+  bridgeApiUrl: string;
+  bridgeApiKey: string;
+  runId: string;                         // ACP run_id (= bridge_run_id)
+  onEvent: (event: BridgeEvent) => void;
+  onClose: () => void;
+}
+
+/**
+ * Subscribe to the bridge SSE stream for a run.
+ * Returns a cancel function that terminates the stream.
+ */
+export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => void;
+```
+
+**SSE parsing pattern:** Read `response.body` as a `ReadableStream<Uint8Array>`, decode
+with `TextDecoder`, accumulate partial lines, split on `\n\n` to get frames, parse
+`event:` and `data:` fields from each frame.
+
+```ts
+// Pattern for reading an SSE stream with native fetch:
+const response = await fetch(url, { headers, signal: controller.signal });
+const reader = response.body!.getReader();
+const decoder = new TextDecoder();
+let buffer = '';
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buffer += decoder.decode(value, { stream: true });
+  const frames = buffer.split('\n\n');
+  buffer = frames.pop() ?? '';
+  for (const frame of frames) {
+    // parse event: and data: lines
+  }
+}
+```
+
+**Terminal events** (`run.completed`, `run.failed`): call `opts.onClose()` after delivering
+the event, then stop reading.
+
+**Done criteria:**
+```bash
+npx tsc --noEmit -p tsconfig.server.json   # exits 0
+npx vitest run src/server/bridge-stream.test.ts  # exits 0
+# (write the test file alongside - mock fetch, verify events fire and cancel works)
+```
 
 ---
 
-### t10 - Update docker-compose.yml
+## t2b - Wire bridge-stream into card-routes.ts
 
-**Goal:** docker-compose reflects new structure.
+**Goal:** After a successful dispatch, subscribe to the bridge run stream. Relay each
+bridge event to the kanban's `SseManager` for the card. Update the run status in SQLite
+on terminal events.
 
-**Steps:**
-1. Update build context (still `.`)
-2. Verify env vars are correct (same as before)
-3. No changes to volumes or depends_on
+**Files to read:**
+- `src/server/card-routes.ts` - two dispatch call sites (POST /api/cards and POST /api/cards/:id/comments)
+- `src/server/bridge-stream.ts` - `subscribeToBridgeRunStream`, `BridgeEvent` (just created in t2a)
+- `src/server/sse.ts` - `SseManager.emit(cardId, event, data)`
+- `src/server/cards.ts` - `updateRun`
 
-**Validation:** `docker compose config` exits 0
+**Files to modify:**
+- `src/server/card-routes.ts`
+
+**Relay mapping** (bridge event type -> kanban SSE event name and data):
+
+```ts
+// On each bridge event, call:
+sseManager?.emit(cardId, bridgeEvent.type, bridgeEvent.data);
+
+// On run.awaiting: also call updateRun(db, kanbanRunId, { status: 'awaiting' })
+// On run.completed: also call updateRun(db, kanbanRunId, { status: 'completed', finished_at: new Date().toISOString() })
+// On run.failed: also call updateRun(db, kanbanRunId, { status: 'failed', finished_at: new Date().toISOString(), error: bridgeEvent.data.error as string ?? null })
+```
+
+**Wire pattern** (both dispatch call sites follow the same pattern):
+```ts
+const dispatchResult = await dispatchToBridge(config, db, { ... });
+if (dispatchResult.ok && dispatchResult.bridgeRunId && sseManager) {
+  subscribeToBridgeRunStream({
+    bridgeApiUrl: config.bridgeApiUrl,
+    bridgeApiKey: config.bridgeApiKey,
+    runId: dispatchResult.bridgeRunId,
+    onEvent: (event) => { /* relay + updateRun on terminal */ },
+    onClose: () => { /* no-op, terminal events handle cleanup */ },
+  });
+}
+```
+
+**Note:** `subscribeToBridgeRunStream` is fire-and-forget. Do NOT await it.
+The cancel function is not needed here (stream self-terminates on run end).
+
+**Done criteria:**
+```bash
+npx tsc --noEmit -p tsconfig.server.json   # exits 0
+```
 
 ---
 
-### t11 - Update README
+## t3 - Add resume route to card-routes.ts
 
-**Goal:** README reflects new dev workflow.
+**Goal:** Add `POST /api/cards/:id/runs/:run_id/resume` that proxies the permission
+decision to the bridge's `POST /v1/runs/:run_id/resume`.
 
-**Steps:**
-1. Remove references to separate client/server dev commands
-2. Document single `npm run dev` workflow
-3. Document env vars needed: `BRIDGE_API_URL`, `BRIDGE_API_KEY`, `SESSION_SECRET`
-4. Document `npm run cli -- user add <username> <password>`
-5. Keep Docker section, update if needed
+**Files to read:**
+- `src/server/card-routes.ts` - existing route pattern (copy auth + error shape)
+- `src/server/config.ts` - `AppConfig` (need `bridgeApiUrl`, `bridgeApiKey`)
+- `src/server/cards.ts` - `listRuns` (to verify the run belongs to the card)
 
-**Validation:** README is accurate and complete
+**Files to modify:**
+- `src/server/card-routes.ts`
+
+**Route spec:**
+```
+POST /api/cards/:id/runs/:run_id/resume
+Auth: session cookie (existing app.addHook or preHandler - match pattern of other card routes)
+Body: { decision: 'allow-once' | 'allow-session' | 'allow-all-session' | 'allow-all' | 'deny' }
+```
+
+**Implementation:**
+1. Verify card exists (404 if not)
+2. Verify `run_id` belongs to the card via `listRuns` (404 if not found)
+3. POST to `${config.bridgeApiUrl}/v1/runs/${run_id}/resume` with body `{ decision }`
+   and header `Authorization: Bearer ${config.bridgeApiKey}`
+4. Return 200 `{ run_id, decision }` on success
+5. Pass through 404 and 409 status codes from bridge unchanged
+6. Return 502 if bridge fetch fails (network error)
+
+**Done criteria:**
+```bash
+npx tsc --noEmit -p tsconfig.server.json   # exits 0
+npx vitest run src/server/card-routes.test.ts  # exits 0
+```
 
 ---
 
-### t12 - Final validation
+## t4 - Add GET /api/cards/:id/runs/:run_id route
 
-**Goal:** Full integration test of the refactored app.
+**Goal:** Single-run fetch endpoint so the client can hydrate the run detail drawer
+when opening mid-run or after completion.
+
+**Files to read:**
+- `src/server/card-routes.ts` - existing `GET /api/cards/:id/runs` pattern (lines ~195-205)
+- `src/server/cards.ts` - `listRuns` (use this to find the run, filter by run_id)
+
+**Files to modify:**
+- `src/server/card-routes.ts`
+
+**Route spec:**
+```
+GET /api/cards/:id/runs/:run_id
+Returns: { run: Run }
+404 if card not found or run not found / does not belong to card
+```
+
+**Implementation:** call `listRuns(db, id)` and find the entry where `r.id === run_id`.
+
+**Done criteria:**
+```bash
+npx tsc --noEmit -p tsconfig.server.json   # exits 0
+```
+
+---
+
+## t5 - Delete callback route and remove kanbanBaseUrl
+
+**Goal:** Remove all dead code from the old callback pattern.
+
+**Files to read:**
+- `src/server/server.ts` - find `registerAgentCallbackRoutes` call
+- `src/server/config.ts` - `kanbanBaseUrl` field and its `loadConfig` logic
+- `.env.example` - `KANBAN_BASE_URL` entry
+
+**Files to modify / delete:**
+- Delete: `src/server/agent-callback.ts`
+- Delete: `src/server/agent-callback.test.ts`
+- Modify: `src/server/server.ts` - remove `registerAgentCallbackRoutes` import and call
+- Modify: `src/server/config.ts` - remove `kanbanBaseUrl` from `AppConfig` interface and `loadConfig`
+- Modify: `.env.example` - remove `KANBAN_BASE_URL` line
+
+**Done criteria:**
+```bash
+npx tsc --noEmit -p tsconfig.server.json   # exits 0
+npx vitest run                              # exits 0 (no failing tests from deleted files)
+grep -r "kanbanBaseUrl\|KANBAN_BASE_URL\|agent-callback\|registerAgentCallbackRoutes" src/ # returns nothing
+```
+
+---
+
+## t6 - Add runs API to client.ts
+
+**Goal:** Add `runs.resume` and `runs.get` to the client API object.
+
+**Files to read:**
+- `src/client/api/client.ts` - full file, follow `apiFetch` pattern
+- `src/client/api/types.ts` - `Run` type (add if missing, mirror `src/server/cards.ts Run`)
+
+**Files to modify:**
+- `src/client/api/client.ts`
+- `src/client/api/types.ts`
+
+**Add to `types.ts`** (if `Run` is not already there):
+```ts
+export interface Run {
+  id: string;
+  card_id: string;
+  agent_name: string;
+  status: 'created' | 'running' | 'awaiting' | 'completed' | 'failed';
+  bridge_run_id: string | null;
+  bridge_session_id: string | null;
+  input_comment_id: string | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export type ResumeDecision =
+  | 'allow-once'
+  | 'allow-session'
+  | 'allow-all-session'
+  | 'allow-all'
+  | 'deny';
+```
+
+**Add to `client.ts`** as a new `runs` namespace following the `comments` pattern:
+```ts
+const runs = {
+  get(cardId: string, runId: string): Promise<{ run: Run }> {
+    return apiFetch(`/api/cards/${encodeURIComponent(cardId)}/runs/${encodeURIComponent(runId)}`);
+  },
+  resume(cardId: string, runId: string, decision: ResumeDecision): Promise<{ run_id: string; decision: string }> {
+    return apiFetch(`/api/cards/${encodeURIComponent(cardId)}/runs/${encodeURIComponent(runId)}/resume`, {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    });
+  },
+};
+// Add runs to the exported api object: export const api = { auth, agents, cards, comments, labels, checkpoints, preferences, runs };
+```
+
+**Done criteria:**
+```bash
+npx tsc --noEmit   # exits 0 (root tsconfig - covers client)
+```
+
+---
+
+## t7 - Extend useCardEvents to handle new ACP event types
+
+**Goal:** Handle the new bridge event types that are relayed through the kanban SSE
+channel: `run.status`, `run.awaiting`, `tool.start`, `tool.end`, `run.text_delta`.
+Expose `awaitingPermission` state for the RunStatusBar to render.
+
+**Files to read:**
+- `src/client/hooks/useCardEvents.ts` - FULL file - extend the `handleEvent` switch
+- `src/client/api/types.ts` - `CardEvent`, `ToolCall`
+
+**Files to modify:**
+- `src/client/hooks/useCardEvents.ts`
+
+**Add to `StreamingState`:**
+```ts
+export interface AwaitingPermission {
+  runId: string;
+  tool: string;
+  detail?: string;
+}
+
+export interface StreamingState {
+  isStreaming: boolean;
+  content: string;
+  toolCalls: ToolCall[];
+  connectionStatus: ConnectionStatus;
+  awaitingPermission: AwaitingPermission | null;  // ADD
+  retry: () => void;
+}
+```
+
+**Add to `handleEvent` switch** (add these cases before `default`):
+```ts
+case 'run.text_delta': {
+  const chunk = getChunkContent(event.data);
+  if (chunk) {
+    setStreamingState((s) => ({ ...s, isStreaming: true, content: s.content + chunk }));
+  }
+  return;
+}
+case 'tool.start': {
+  const toolCall = toolCallFromEvent(event.data);
+  if (toolCall) {
+    setStreamingState((s) => ({ ...s, isStreaming: true, toolCalls: upsertToolCall(s.toolCalls, toolCall) }));
+  }
+  return;
+}
+case 'tool.end': {
+  const toolCall = toolResultFromEvent(event.data);
+  if (toolCall) {
+    setStreamingState((s) => ({ ...s, toolCalls: upsertToolCall(s.toolCalls, toolCall) }));
+  }
+  return;
+}
+case 'run.awaiting': {
+  const d = event.data as Record<string, unknown>;
+  setStreamingState((s) => ({
+    ...s,
+    awaitingPermission: {
+      runId: d.run_id as string,
+      tool: d.tool as string,
+      detail: d.detail as string | undefined,
+    },
+  }));
+  return;
+}
+case 'run.status':
+case 'run.completed':
+case 'run.failed': {
+  void invalidateCardQueries();
+  setStreamingState((s) => ({ ...initialStreamingState, retry: s.retry, awaitingPermission: null }));
+  return;
+}
+```
+
+Also update `initialStreamingState` to include `awaitingPermission: null`.
+
+**Done criteria:**
+```bash
+npx tsc --noEmit   # exits 0
+```
+
+---
+
+## t8 - New RunStatusBar component
+
+**Goal:** Compact run status indicator shown at the bottom of each card. Shows current
+run phase as an icon + label. Shows approve/deny inline when `awaiting`. Has a
+"View live" link that triggers the drawer.
+
+**Files to read:**
+- `src/client/hooks/useCardEvents.ts` - `StreamingState`, `AwaitingPermission`
+- `src/client/api/client.ts` - `api.runs.resume`
+- `src/client/api/types.ts` - `Run`, `ResumeDecision`
+- Any existing shadcn component in `src/client/components/ui/` - follow the import pattern
+
+**File to create:**
+- `src/client/components/RunStatusBar.tsx`
+
+**Props interface:**
+```ts
+interface RunStatusBarProps {
+  cardId: string;
+  latestRun: Run | null;          // from card data (hydrated)
+  streaming: StreamingState;      // from useCardEvents
+  onViewLive: (runId: string) => void;  // opens the drawer
+}
+```
+
+**Status rendering:**
+| Status / condition | Display |
+|---|---|
+| `null` or `created` | nothing (hidden) |
+| `running` (isStreaming) | spinner + "Working..." + "View live" link |
+| `awaiting` | warning icon + tool name + Approve / Deny buttons + "View live" link |
+| `completed` | checkmark + "Done" (fades after 5s) |
+| `failed` | x icon + "Failed" + error truncated |
+
+**Approve/Deny buttons** call `api.runs.resume(cardId, runId, 'allow-once')` and
+`api.runs.resume(cardId, runId, 'deny')` respectively. Show a loading spinner while
+the request is in flight. On success, clear `awaitingPermission` optimistically.
+
+**Done criteria:**
+```bash
+npx tsc --noEmit   # exits 0
+npx vite build 2>&1 | tail -5   # exits 0, no type errors
+```
+
+---
+
+## t9a - New RunDetailDrawer shell
+
+**Goal:** Right-side drawer that slides in over the board. Contains a header (card title +
+run status badge + close button) and a scrollable body (populated in t9b). No route
+change - controlled by a boolean state in the parent.
+
+**Files to read:**
+- Any existing shadcn `Sheet` component in `src/client/components/ui/` - use it if present,
+  otherwise implement with a fixed-position div + Tailwind transition classes
+- `src/client/api/types.ts` - `Run`
+
+**File to create:**
+- `src/client/components/RunDetailDrawer.tsx`
+
+**Props interface:**
+```ts
+interface RunDetailDrawerProps {
+  open: boolean;
+  onClose: () => void;
+  cardId: string;
+  cardTitle: string;
+  runId: string | null;
+}
+```
+
+**Layout spec:**
+- Fixed position, right-0, top-0, h-full, w-[45vw] min-w-[360px]
+- Slides in with CSS transition: `translate-x-full` when closed, `translate-x-0` when open
+- Header: `cardTitle` + run status badge (fetched via `api.runs.get`) + X button
+- Body: scrollable div (event log goes here - passed as children or populated in t9b)
+- Backdrop: semi-transparent overlay behind drawer, click closes
+
+**Done criteria:**
+```bash
+npx tsc --noEmit   # exits 0
+npx vite build 2>&1 | tail -5   # exits 0
+```
+
+---
+
+## t9b - RunDetailDrawer event log
+
+**Goal:** Wire the SSE event stream into the drawer body. Render each event type as a
+distinct row. Auto-scroll to bottom on new events unless the user has scrolled up.
+
+**Files to read:**
+- `src/client/hooks/useCardEvents.ts` - reuse the hook with the same `cardId`
+- `src/client/components/RunDetailDrawer.tsx` - add the log body here (t9a scaffold)
+- `src/client/api/client.ts` - `api.runs.resume` for inline approve/deny
+
+**Files to modify:**
+- `src/client/components/RunDetailDrawer.tsx`
+
+**Event row rendering:**
+
+```tsx
+// run.in_progress
+<div className="text-xs text-muted-foreground">Agent started {timestamp}</div>
+
+// tool.start
+<details className="border rounded p-2 text-sm">
+  <summary>Tool: {toolCall.name}</summary>
+  <pre className="text-xs mt-1 overflow-auto">{JSON.stringify(toolCall.input, null, 2)}</pre>
+</details>
+
+// tool.end (update the matching tool.start entry)
+// Add result/error to the existing <details> row for that toolCall.id
+
+// run.text_delta
+// Accumulate into a <pre> block, appending chunks as they arrive
+
+// run.awaiting
+<div className="border-l-4 border-yellow-400 pl-3 py-2">
+  <p className="text-sm font-medium">Permission required: {tool}</p>
+  <div className="flex gap-2 mt-2">
+    <button onClick={() => resume('allow-once')}>Approve</button>
+    <button onClick={() => resume('deny')}>Deny</button>
+  </div>
+</div>
+
+// run.completed
+<div className="text-green-600 text-sm font-medium">Run completed</div>
+
+// run.failed
+<div className="text-red-600 text-sm font-medium">Run failed: {error}</div>
+```
+
+**Auto-scroll:** use a `useEffect` with a `ref` on the bottom of the log div. Only
+scroll if `isNearBottom` (within 100px of bottom) to avoid interrupting manual scrolling.
+
+**Done criteria:**
+```bash
+npx tsc --noEmit   # exits 0
+npx vite build 2>&1 | tail -5   # exits 0
+```
+
+---
+
+## t10 - Wire RunStatusBar and RunDetailDrawer into card view
+
+**Goal:** Add RunStatusBar to the card component and wire up drawer open/close state.
+
+**Files to read:**
+- Any component in `src/client/components/` that renders individual cards
+  (likely `CardPreview.tsx` or `CardView.tsx` - read both to find the right one)
+- `src/client/hooks/useCardEvents.ts` - already used in the card component
+- `src/client/api/types.ts` - `Run`
+
+**Files to modify:**
+- The card component that renders runs/comments (check both files above)
+
+**Changes:**
+1. Add `useState<string | null>(null)` for `drawerRunId`
+2. Pass `onViewLive={(runId) => setDrawerRunId(runId)}` to `RunStatusBar`
+3. Render `<RunDetailDrawer open={!!drawerRunId} onClose={() => setDrawerRunId(null)} runId={drawerRunId} ... />`
+4. Render `<RunStatusBar cardId={card.id} latestRun={latestRun} streaming={streaming} onViewLive={...} />`
+   where `latestRun` is the last entry from `card.runs` (or null)
+
+**Done criteria:**
+```bash
+npx tsc --noEmit   # exits 0
+npx vite build 2>&1 | tail -5   # exits 0
+npx vitest run                  # exits 0
+```
+
+---
+
+## t11 - Final validation
+
+**Goal:** Full clean build and test pass. Close issues #1 and #4.
 
 **Steps:**
-1. `rm -rf node_modules dist && npm install`
-2. `npm run lint` -- exits 0
-3. `npm test` -- all tests pass
+1. `rm -rf dist`
+2. `npx tsc --noEmit -p tsconfig.server.json && npx tsc --noEmit` -- both exit 0
+3. `npx vitest run` -- all tests pass
 4. `npm run build` -- exits 0
-5. `npm run dev` -- serves client + API on port 3000
-6. `npm start` (after build) -- serves production bundle on port 3000
-7. Docker build and run -- works
+5. Search for dead references:
+   ```bash
+   grep -r "kanbanBaseUrl\|KANBAN_BASE_URL\|agent-callback\|v1/agent/execute\|callback_url" src/
+   # must return nothing
+   ```
+6. Commit and push
 
-**Validation:** All above pass, commit and push
-
----
-
-## Implementation Notes
-
-- The server already has `@fastify/static` and SPA fallback in `server.ts` -- don't rewrite, just adjust paths
-- Client `api/client.ts` uses relative paths (`/api/...`) -- no changes needed since same origin
-- SSE proxy streaming in `proxy.ts` -- must verify it still works with middleware mode
-- `@fastify/middie` enables express-style middleware (for Vite's connect middleware) on Fastify
-- The CLI reads `DB_PATH` from env -- independent of server, no changes needed
+**Done criteria:** all commands above exit 0, grep returns empty.
