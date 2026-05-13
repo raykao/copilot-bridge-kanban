@@ -57,13 +57,21 @@ export interface Run {
   id: string;
   card_id: string;
   agent_name: string;
-  status: "created" | "running" | "completed" | "failed" | "cancelled";
+  status: "created" | "running" | "awaiting" | "completed" | "failed";
+  bridge_run_id: string | null;
   bridge_session_id: string | null;
   input_comment_id: string | null;
   error: string | null;
   created_at: string;
   finished_at: string | null;
 }
+
+export type ResumeDecision =
+  | "allow-once"
+  | "allow-session"
+  | "allow-all-session"
+  | "allow-all"
+  | "deny";
 
 export interface CardComment {
   id: string;

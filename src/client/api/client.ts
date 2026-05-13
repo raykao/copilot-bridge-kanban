@@ -8,6 +8,8 @@ import type {
   CardFilter,
   Checkpoint,
   NewCard,
+  ResumeDecision,
+  Run,
   UserPreferences,
 } from './types';
 
@@ -279,7 +281,29 @@ const preferences = {
   },
 };
 
-export const api = { auth, agents, cards, comments, labels, checkpoints, preferences };
+const runs = {
+  get(cardId: string, runId: string): Promise<{ run: Run }> {
+    return apiFetch<{ run: Run }>(
+      `/api/cards/${encodeURIComponent(cardId)}/runs/${encodeURIComponent(runId)}`,
+    );
+  },
+
+  resume(
+    cardId: string,
+    runId: string,
+    decision: ResumeDecision,
+  ): Promise<{ run_id: string; decision: string }> {
+    return apiFetch<{ run_id: string; decision: string }>(
+      `/api/cards/${encodeURIComponent(cardId)}/runs/${encodeURIComponent(runId)}/resume`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      },
+    );
+  },
+};
+
+export const api = { auth, agents, cards, comments, labels, checkpoints, preferences, runs };
 
 export function subscribeToCardEvents(
   cardId: string,
