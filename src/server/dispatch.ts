@@ -7,36 +7,30 @@ export interface DispatchOptions {
   prompt: string;
   cardId: string;
   runId: string;
-  sessionId?: string;
 }
 
 export interface DispatchResult {
   ok: boolean;
-  session_id?: string;
+  bridgeRunId?: string;
   error?: string;
 }
 
 /**
- * Dispatch a prompt to the bridge's agent execution endpoint.
- * The bridge will POST the agent's response to our callback URL.
+ * Dispatch a prompt to the bridge ACP runs endpoint.
  */
 export async function dispatchToBridge(
   config: AppConfig,
   db: Database.Database,
   opts: DispatchOptions,
 ): Promise<DispatchResult> {
-  const callbackUrl = `${config.kanbanBaseUrl}/api/internal/cards/${opts.cardId}/agent-response`;
-
   const body = {
     bot: opts.bot,
-    prompt: opts.prompt,
     channel_id: opts.cardId,
-    callback_url: callbackUrl,
-    ...(opts.sessionId ? { session_id: opts.sessionId } : {}),
+    prompt: opts.prompt,
   };
 
   try {
-    const res = await fetch(`${config.bridgeApiUrl}/v1/agent/execute`, {
+    const res = await fetch(`${config.bridgeApiUrl}/v1/runs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -47,21 +41,22 @@ export async function dispatchToBridge(
 
     if (!res.ok) {
       const errorBody = await res.text().catch(() => 'unknown error');
-      updateRun(db, opts.runId, { status: 'failed', error: `Bridge returned ${res.status}: ${errorBody}` });
-      return { ok: false, error: `Bridge returned ${res.status}` };
+      const message = `Bridge returned ${res.status}: ${errorBody}`;
+      updateRun(db, opts.runId, { status: 'failed', error: message });
+      return { ok: false, error: message };
     }
 
-    const result = (await res.json()) as { run_id?: string; session_id?: string };
+    const result = (await res.json()) as { run_id: string; status: string };
 
     updateRun(db, opts.runId, {
       status: 'running',
-      bridge_session_id: result.session_id ?? null,
+      bridge_run_id: result.run_id,
     });
 
-    return { ok: true, session_id: result.session_id };
+    return { ok: true, bridgeRunId: result.run_id };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
-    updateRun(db, opts.runId, { status: 'failed', error: `Dispatch failed: ${message}` });
+    updateRun(db, opts.runId, { status: 'failed', error: message });
     return { ok: false, error: message };
   }
 }
