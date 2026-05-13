@@ -24,9 +24,9 @@ export async function dispatchToBridge(
   opts: DispatchOptions,
 ): Promise<DispatchResult> {
   const body = {
-    bot: opts.bot,
-    channel_id: opts.cardId,
-    prompt: opts.prompt,
+    agent_name: opts.bot,
+    input: [{ role: 'user' as const, parts: [{ content: opts.prompt }] }],
+    session_id: opts.cardId,
   };
 
   try {
