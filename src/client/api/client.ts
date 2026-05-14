@@ -1,13 +1,15 @@
 import type {
   Agent,
+  AgentCard,
   AuthUser,
   Card,
   CardComment,
   CardDetail,
-  CardEvent,
   CardFilter,
   Checkpoint,
   NewCard,
+  ResumeDecision,
+  Run,
   UserPreferences,
 } from './types';
 
@@ -151,6 +153,10 @@ const agents = {
     return unwrapArray<Agent>(data, 'agents');
   },
 
+  cards(): Promise<{ cards: AgentCard[] }> {
+    return apiFetch<{ cards: AgentCard[] }>('/api/agents/cards');
+  },
+
   get(name: string): Promise<Agent> {
     return apiFetch<Agent>(`/api/agents/${encodeURIComponent(name)}`);
   },
@@ -279,25 +285,26 @@ const preferences = {
   },
 };
 
-export const api = { auth, agents, cards, comments, labels, checkpoints, preferences };
+const runs = {
+  get(cardId: string, runId: string): Promise<{ run: Run }> {
+    return apiFetch<{ run: Run }>(
+      `/api/cards/${encodeURIComponent(cardId)}/runs/${encodeURIComponent(runId)}`,
+    );
+  },
 
-export function subscribeToCardEvents(
-  cardId: string,
-  onEvent: (event: CardEvent) => void,
-  onError?: (error: Event) => void,
-): EventSource {
-  const es = new EventSource(`/api/cards/${cardId}/events`, { withCredentials: true });
+  resume(
+    cardId: string,
+    runId: string,
+    decision: ResumeDecision,
+  ): Promise<{ run_id: string; decision: string }> {
+    return apiFetch<{ run_id: string; decision: string }>(
+      `/api/cards/${encodeURIComponent(cardId)}/runs/${encodeURIComponent(runId)}/resume`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      },
+    );
+  },
+};
 
-  es.onmessage = (e) => {
-    try {
-      const event: CardEvent = JSON.parse(e.data);
-      onEvent(event);
-    } catch {}
-  };
-
-  if (onError) {
-    es.onerror = onError;
-  }
-
-  return es;
-}
+export const api = { auth, agents, cards, comments, labels, checkpoints, preferences, runs };

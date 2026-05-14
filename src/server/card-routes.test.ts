@@ -1,11 +1,27 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from './config.js';
+
+const bridgeStreamMocks = vi.hoisted(() => ({
+  subscribeToBridgeRunStream: vi.fn(),
+  registerBridgePushNotification: vi.fn(),
+}));
+
+const agentTokenMocks = vi.hoisted(() => ({
+  mintAgentTokenForCard: vi.fn(),
+}));
+
+vi.mock('./bridge-stream.js', () => bridgeStreamMocks);
+vi.mock('./agent-tokens.js', () => agentTokenMocks);
+
 import { createUser, registerAuthRoutes, registerSessionMiddleware } from './auth.js';
+import { createRun, listComments, listRuns, updateRun } from './cards.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { createServer } from './server.js';
 import { registerCardRoutes } from './card-routes.js';
+import { mintAgentTokenForCard } from './agent-tokens.js';
+import { registerBridgePushNotification, subscribeToBridgeRunStream } from './bridge-stream.js';
 
 const config: AppConfig = {
   port: 3000,
@@ -19,14 +35,32 @@ const config: AppConfig = {
 
 const apps: Array<{ db: Database.Database; server: FastifyInstance }> = [];
 
+beforeEach(() => {
+  vi.mocked(subscribeToBridgeRunStream).mockReset();
+  vi.mocked(subscribeToBridgeRunStream).mockReturnValue(() => {});
+  vi.mocked(registerBridgePushNotification).mockReset();
+  vi.mocked(registerBridgePushNotification).mockResolvedValue(undefined);
+  vi.mocked(mintAgentTokenForCard).mockReset();
+  vi.mocked(mintAgentTokenForCard).mockImplementation((_db, cardId, agentName) => ({
+    id: 't',
+    agent_name: agentName,
+    card_id: cardId,
+    token: 'fake-token-xyz',
+    created_at: '2026-05-13T00:00:00Z',
+  }));
+});
+
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+
   for (const { db, server } of apps.splice(0)) {
     await server.close();
     db.close();
   }
 });
 
-async function createTestApp(): Promise<{
+async function createTestApp(options: { registerBridge?: boolean } = {}): Promise<{
   db: Database.Database;
   server: FastifyInstance;
   sessionCookie: string;
@@ -37,7 +71,7 @@ async function createTestApp(): Promise<{
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
   registerAuthRoutes(server, db);
-  registerCardRoutes(server, db);
+  registerCardRoutes(server, db, options.registerBridge ? config : undefined);
 
   await createUser(db, 'alice', 'password');
 
@@ -51,6 +85,12 @@ async function createTestApp(): Promise<{
 
   apps.push({ db, server });
   return { db, server, sessionCookie: cookie };
+}
+
+async function invokeLatestOnReady(bridgeRunId = 'br-123'): Promise<void> {
+  const call = vi.mocked(subscribeToBridgeRunStream).mock.calls.at(-1);
+  expect(call).toBeDefined();
+  await call![0].onReady?.(bridgeRunId);
 }
 
 describe('card routes', () => {
@@ -232,6 +272,236 @@ describe('comment routes', () => {
     expect(runs).toHaveLength(1);
     expect(runs[0].agent_name).toBe('bob');
     expect(runs[0].input_comment_id).toBe(body.comment.id);
+  });
+
+  it('registers push notification config when comment-create dispatch is ready', async () => {
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Assigned', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const commentRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/comments`,
+      headers: { cookie: sessionCookie },
+      payload: { content: 'do the thing' },
+    });
+    expect(commentRes.statusCode).toBe(201);
+
+    await invokeLatestOnReady('br-123');
+
+    expect(mintAgentTokenForCard).toHaveBeenCalledWith(db, card.id, 'bob');
+    expect(registerBridgePushNotification).toHaveBeenCalledWith({
+      bridgeApiUrl: 'http://localhost:7878',
+      bridgeApiKey: 'test-key',
+      bot: 'bob',
+      bridgeRunId: 'br-123',
+      callbackUrl: `http://localhost:3000/api/internal/push-callback/${encodeURIComponent(card.id)}/bob`,
+      callbackToken: 'fake-token-xyz',
+    });
+
+    const [run] = listRuns(db, card.id);
+    expect(run.status).toBe('running');
+    expect(run.bridge_run_id).toBe('br-123');
+  });
+
+  it('continues comment-create dispatch when push registration fails', async () => {
+    vi.mocked(registerBridgePushNotification).mockRejectedValueOnce(new Error('bridge down'));
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const warnSpy = vi.spyOn(server.log, 'warn');
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Assigned', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const commentRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/comments`,
+      headers: { cookie: sessionCookie },
+      payload: { content: 'do the thing' },
+    });
+    expect(commentRes.statusCode).toBe(201);
+
+    await expect(invokeLatestOnReady('br-456')).resolves.toBeUndefined();
+
+    const [run] = listRuns(db, card.id);
+    expect(run.status).toBe('running');
+    expect(run.bridge_run_id).toBe('br-456');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error), cardId: card.id, runId: run.id }),
+      'failed to register push notification config; falling back to SSE-only persistence',
+    );
+  });
+});
+
+describe('run routes', () => {
+  it('resumes a run through the bridge', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Awaiting permission' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+    updateRun(db, run.id, { bridge_run_id: 'br-test-1' });
+
+    const resumeRes = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${card.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'allow-once' },
+    });
+
+    expect(resumeRes.statusCode).toBe(200);
+    expect(JSON.parse(resumeRes.body)).toEqual({
+      run_id: run.id,
+      decision: 'allow-once',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:7878/runs/br-test-1/resume',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer test-key',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ decision: 'allow-once' }),
+      },
+    );
+  });
+
+  it('returns 409 when run has no bridge_run_id', async () => {
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'No bridge run' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${card.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'allow-once' },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body)).toEqual({ error: 'run not yet dispatched to bridge' });
+  });
+
+  it('returns 404 when resuming a run for a nonexistent card', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { server, sessionCookie } = await createTestApp({ registerBridge: true });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: '/api/cards/missing/runs/run-1/resume',
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'allow-once' },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Card not found' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the run does not belong to the card', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const cardARes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Card A' },
+    });
+    const cardBRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Card B' },
+    });
+    const { card: cardA } = JSON.parse(cardARes.body);
+    const { card: cardB } = JSON.parse(cardBRes.body);
+    const run = createRun(db, { card_id: cardB.id, agent_name: 'bob' });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${cardA.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'allow-once' },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({ error: 'Run not found' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when the resume decision is invalid', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Invalid decision' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${card.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'forever' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: 'invalid decision' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 when the bridge resume request fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('connect ECONNREFUSED');
+    }));
+
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Bridge down' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+    updateRun(db, run.id, { bridge_run_id: 'br-test-2' });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${card.id}/runs/${run.id}/resume`,
+      headers: { cookie: sessionCookie },
+      payload: { decision: 'deny' },
+    });
+
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body)).toEqual({ error: 'bridge unavailable' });
   });
 });
 
@@ -469,5 +739,120 @@ describe('card creation with agent', () => {
     expect(detail.comments).toHaveLength(1);
     expect(detail.comments[0].content).toBe('Build the thing');
     expect(detail.comments[0].author_kind).toBe('human');
+  });
+
+  it('registers push notification config when card-create dispatch is ready', async () => {
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Agent card', description: 'Build the thing', agent: 'bob' },
+    });
+    expect(createRes.statusCode).toBe(201);
+    const { card } = JSON.parse(createRes.body);
+
+    await invokeLatestOnReady('br-123');
+
+    expect(mintAgentTokenForCard).toHaveBeenCalledWith(db, card.id, 'bob');
+    expect(registerBridgePushNotification).toHaveBeenCalledWith({
+      bridgeApiUrl: 'http://localhost:7878',
+      bridgeApiKey: 'test-key',
+      bot: 'bob',
+      bridgeRunId: 'br-123',
+      callbackUrl: `http://localhost:3000/api/internal/push-callback/${encodeURIComponent(card.id)}/bob`,
+      callbackToken: 'fake-token-xyz',
+    });
+
+    const [run] = listRuns(db, card.id);
+    expect(run.status).toBe('running');
+    expect(run.bridge_run_id).toBe('br-123');
+  });
+
+  it('continues card-create dispatch when push registration fails', async () => {
+    vi.mocked(registerBridgePushNotification).mockRejectedValueOnce(new Error('bridge down'));
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const warnSpy = vi.spyOn(server.log, 'warn');
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Agent card', description: 'Build the thing', agent: 'bob' },
+    });
+    expect(createRes.statusCode).toBe(201);
+    const { card } = JSON.parse(createRes.body);
+
+    await expect(invokeLatestOnReady('br-456')).resolves.toBeUndefined();
+
+    const [run] = listRuns(db, card.id);
+    expect(run.status).toBe('running');
+    expect(run.bridge_run_id).toBe('br-456');
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error), cardId: card.id, runId: run.id }),
+      'failed to register push notification config; falling back to SSE-only persistence',
+    );
+  });
+});
+
+describe('bridge streaming integration', () => {
+  it('persists agent reply as card comment and sets bridge_run_id when message.completed fires', async () => {
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Stream card', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const commentRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/comments`,
+      headers: { cookie: sessionCookie },
+      payload: { content: 'do the thing' },
+    });
+    expect(commentRes.statusCode).toBe(201);
+    const { run_id } = JSON.parse(commentRes.body);
+
+    const streamOptions = vi.mocked(subscribeToBridgeRunStream).mock.calls.at(-1)![0];
+    await streamOptions.onReady?.('bridge-run-99');
+    streamOptions.onEvent({ type: 'message.completed', data: { role: 'agent', content: 'hello' } });
+    streamOptions.onEvent({ type: 'run.completed', data: { run_id: 'bridge-run-99' } });
+
+    const comments = listComments(db, card.id);
+    const agentComment = comments.find((c) => c.author_kind === 'agent');
+    expect(agentComment).toBeDefined();
+    expect(agentComment!.content).toBe('hello');
+    expect(agentComment!.author_id).toBe('bob');
+    expect(agentComment!.run_id).toBe(run_id);
+
+    const runs = listRuns(db, card.id);
+    const run = runs.find((r) => r.id === run_id)!;
+    expect(run.bridge_run_id).toBe('bridge-run-99');
+    expect(run.status).toBe('completed');
+  });
+
+  it('sets run status to running with bridge_run_id when onReady fires', async () => {
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Ready test card', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const commentRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/comments`,
+      headers: { cookie: sessionCookie },
+      payload: { content: 'ping' },
+    });
+    const { run_id } = JSON.parse(commentRes.body);
+
+    await invokeLatestOnReady('bridge-run-55');
+
+    const runs = listRuns(db, card.id);
+    const run = runs.find((r) => r.id === run_id)!;
+    expect(run.bridge_run_id).toBe('bridge-run-55');
+    expect(run.status).toBe('running');
   });
 });

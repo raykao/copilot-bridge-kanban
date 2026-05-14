@@ -11,6 +11,7 @@ describe('loadConfig', () => {
   it('loads config from environment variables', () => {
     process.env.BRIDGE_API_URL = 'http://localhost:7878///';
     process.env.BRIDGE_API_KEY = 'test-key';
+    process.env.KANBAN_BASE_URL = 'http://localhost:3000///';
     process.env.SESSION_SECRET = 'secret';
     process.env.PORT = '4321';
     process.env.DB_PATH = './data/test.db';
@@ -19,7 +20,7 @@ describe('loadConfig', () => {
       port: 4321,
       bridgeApiUrl: 'http://localhost:7878',
       bridgeApiKey: 'test-key',
-      kanbanBaseUrl: 'http://localhost:4321',
+      kanbanBaseUrl: 'http://localhost:3000',
       sessionSecret: 'secret',
       dbPath: './data/test.db',
       logLevel: 'info',
@@ -29,6 +30,7 @@ describe('loadConfig', () => {
   it('uses defaults for optional values', () => {
     process.env.BRIDGE_API_URL = 'http://localhost:7878';
     process.env.BRIDGE_API_KEY = 'test-key';
+    process.env.KANBAN_BASE_URL = 'http://localhost:3000';
     process.env.SESSION_SECRET = 'secret';
     delete process.env.PORT;
     delete process.env.DB_PATH;
@@ -47,6 +49,7 @@ describe('loadConfig', () => {
   it('throws when BRIDGE_API_URL is missing', () => {
     delete process.env.BRIDGE_API_URL;
     process.env.BRIDGE_API_KEY = 'test-key';
+    process.env.KANBAN_BASE_URL = 'http://localhost:3000';
     process.env.SESSION_SECRET = 'secret';
 
     expect(() => loadConfig()).toThrowError(
@@ -57,6 +60,7 @@ describe('loadConfig', () => {
   it('throws when BRIDGE_API_KEY is missing', () => {
     process.env.BRIDGE_API_URL = 'http://localhost:7878';
     delete process.env.BRIDGE_API_KEY;
+    process.env.KANBAN_BASE_URL = 'http://localhost:3000';
     process.env.SESSION_SECRET = 'secret';
 
     expect(() => loadConfig()).toThrowError(
@@ -64,9 +68,21 @@ describe('loadConfig', () => {
     );
   });
 
+  it('throws when KANBAN_BASE_URL is missing', () => {
+    process.env.BRIDGE_API_URL = 'http://localhost:7878';
+    process.env.BRIDGE_API_KEY = 'test-key';
+    delete process.env.KANBAN_BASE_URL;
+    process.env.SESSION_SECRET = 'secret';
+
+    expect(() => loadConfig()).toThrowError(
+      'KANBAN_BASE_URL environment variable is required',
+    );
+  });
+
   it('throws when SESSION_SECRET is missing', () => {
     process.env.BRIDGE_API_URL = 'http://localhost:7878';
     process.env.BRIDGE_API_KEY = 'test-key';
+    process.env.KANBAN_BASE_URL = 'http://localhost:3000';
     delete process.env.SESSION_SECRET;
 
     expect(() => loadConfig()).toThrowError(

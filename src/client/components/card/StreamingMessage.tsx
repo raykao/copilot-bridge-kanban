@@ -11,6 +11,7 @@ interface StreamingMessageProps {
 
 function hasStreamingPayload(streamingState: StreamingState): boolean {
   return (
+    streamingState.isThinking ||
     streamingState.isStreaming ||
     streamingState.content.trim().length > 0 ||
     streamingState.toolCalls.length > 0
@@ -60,11 +61,15 @@ export function StreamingMessage({ streamingState }: StreamingMessageProps) {
         <span
           className={cn(
             "size-2 rounded-full bg-primary",
-            isStreaming ? "animate-pulse" : "opacity-60",
+            isStreaming || streamingState.isThinking ? "animate-pulse" : "opacity-60",
           )}
         />
         <span>
-          {isStreaming ? "Agent is streaming" : "Agent response completed"}
+          {streamingState.isThinking && !isStreaming
+            ? "Agent is thinking..."
+            : isStreaming
+              ? "Agent is streaming"
+              : "Agent response completed"}
         </span>
       </div>
 

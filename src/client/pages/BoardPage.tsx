@@ -20,11 +20,12 @@ function sortCards(cards: Card[]): Card[] {
 
 export function BoardPage() {
   const [createOpen, setCreateOpen] = useState(false);
+  const [createInitialAgent, setCreateInitialAgent] = useState<string | undefined>(undefined);
   const filters = useFilterStore();
 
   const agentsQuery = useQuery({
     queryKey: ['agents'],
-    queryFn: () => api.agents.list(),
+    queryFn: () => api.agents.cards(),
     staleTime: 60_000,
   });
 
@@ -33,7 +34,7 @@ export function BoardPage() {
     queryFn: () => api.cards.list(),
   });
 
-  const agents = agentsQuery.data ?? [];
+  const agents = agentsQuery.data?.cards ?? [];
   const cards = cardsQuery.data ?? [];
   const filteredCards = useMemo(() => applyFilters(cards, filters), [cards, filters]);
 
@@ -41,17 +42,22 @@ export function BoardPage() {
     () =>
       [...agents]
         .sort((left, right) => left.name.localeCompare(right.name))
-        .map((agent) => ({
-          id: agent.name,
-          title: agent.name,
+        .map((agentCard) => ({
+          id: agentCard.name,
+          title: agentCard.name,
           cards: sortCards(
             filteredCards.filter(
-              (card) => card.agent_bot === agent.name && card.status !== 'archived',
+              (card) => card.agent_bot === agentCard.name && card.status !== 'archived',
             ),
           ),
         })),
     [agents, filteredCards],
   );
+
+  function handleCreateItem(columnId: string) {
+    setCreateInitialAgent(columnId);
+    setCreateOpen(true);
+  }
 
   if (agentsQuery.isPending || cardsQuery.isPending) {
     return <BoardPageSkeleton columns={4} />;
@@ -81,18 +87,25 @@ export function BoardPage() {
 
           <Button className="min-h-11 w-full sm:w-auto" onClick={() => setCreateOpen(true)}>
             <Plus />
-            New Card
+            New Work Item
           </Button>
         </div>
 
         <FilterBar cards={cards} />
 
         <div className="min-h-0 flex-1">
-          <BoardView columns={columns} mode="agent" />
+          <BoardView columns={columns} mode="agent" onCreateItem={handleCreateItem} />
         </div>
       </div>
 
-      <CreateCardModal onOpenChange={setCreateOpen} open={createOpen} />
+      <CreateCardModal
+        initialValues={createInitialAgent ? { agent: createInitialAgent } : undefined}
+        onOpenChange={(nextOpen) => {
+          setCreateOpen(nextOpen);
+          if (!nextOpen) setCreateInitialAgent(undefined);
+        }}
+        open={createOpen}
+      />
     </>
   );
 }

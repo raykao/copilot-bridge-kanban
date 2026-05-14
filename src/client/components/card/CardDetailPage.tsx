@@ -4,8 +4,10 @@ import { Archive, CircleSlash, PencilLine, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "@/api/client";
-import type { Agent, Card, CardComment } from "@/api/types";
+import type { Agent, Card, CardComment, Run } from "@/api/types";
 import { LiveUpdatesBanner } from "@/components/LiveUpdatesBanner";
+import { RunDetailDrawer } from "@/components/RunDetailDrawer";
+import { RunStatusBar } from "@/components/RunStatusBar";
 import { CheckpointList } from "@/components/card/CheckpointList";
 import { CommentThread } from "@/components/card/CommentThread";
 import { LabelEditor } from "@/components/card/LabelEditor";
@@ -44,6 +46,7 @@ interface CardDetailPageProps {
   card: Card;
   agents: Agent[];
   comments: CardComment[];
+  runs: Run[];
 }
 
 type CardUpdatePatch = Partial<Pick<Card, "title" | "status">> & {
@@ -86,6 +89,7 @@ export function CardDetailPage({
   card,
   agents,
   comments,
+  runs,
 }: CardDetailPageProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -94,6 +98,8 @@ export function CardDetailPage({
   const [actionError, setActionError] = useState<string | null>(null);
   const [abortOpen, setAbortOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [viewRunId, setViewRunId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const streamingState = useCardEvents({ cardId: card.id });
 
   const sortedAgents = useMemo(
@@ -101,6 +107,15 @@ export function CardDetailPage({
       [...agents].sort((left, right) => left.name.localeCompare(right.name)),
     [agents],
   );
+
+  const latestRun = useMemo(() => {
+    if (runs.length === 0) return null;
+    const active = runs.filter(r => r.status !== 'completed' && r.status !== 'failed');
+    const pool = active.length > 0 ? active : runs;
+    return [...pool].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )[0] ?? null;
+  }, [runs]);
 
   useEffect(() => {
     setTitleDraft(card.title);
@@ -275,6 +290,15 @@ export function CardDetailPage({
               <LiveUpdatesBanner
                 onRetry={streamingState.retry}
                 status={streamingState.connectionStatus}
+              />
+              <RunStatusBar
+                cardId={card.id}
+                latestRun={latestRun}
+                streaming={streamingState}
+                onViewLive={(runId) => {
+                  setViewRunId(runId);
+                  setDrawerOpen(true);
+                }}
               />
               <CommentThread cardId={card.id} comments={comments} />
             </section>
@@ -476,6 +500,14 @@ export function CardDetailPage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <RunDetailDrawer
+        cardId={card.id}
+        cardTitle={card.title}
+        onClose={() => setDrawerOpen(false)}
+        open={drawerOpen}
+        runId={viewRunId}
+      />
     </>
   );
 }

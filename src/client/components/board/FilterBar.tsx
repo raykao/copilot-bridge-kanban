@@ -93,7 +93,7 @@ export function FilterBar({ cards }: FilterBarProps) {
             value={status ?? allStatusesValue}
           >
             <SelectTrigger className="min-h-11 w-full md:w-44">
-              <SelectValue placeholder="All statuses" />
+              <SelectValue>{status ? formatStatus(status) : 'All statuses'}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={allStatusesValue}>All statuses</SelectItem>

@@ -27,6 +27,7 @@ interface BoardViewProps {
   columns: Column[];
   isLoading?: boolean;
   mode: 'agent' | 'status';
+  onCreateItem?: (columnId: string) => void;
 }
 
 function buildPatchedCard(card: Card, patch: Record<string, unknown>): Card {
@@ -133,7 +134,7 @@ function BoardSkeletonColumn({ title }: { title: string }) {
   );
 }
 
-export function BoardView({ columns, isLoading = false, mode }: BoardViewProps) {
+export function BoardView({ columns, isLoading = false, mode, onCreateItem }: BoardViewProps) {
   const queryClient = useQueryClient();
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -235,6 +236,7 @@ export function BoardView({ columns, isLoading = false, mode }: BoardViewProps) 
                   columnId={column.id}
                   count={column.cards.length}
                   key={column.id}
+                  onCreateItem={onCreateItem ? () => onCreateItem(column.id) : undefined}
                   title={column.title}
                 />
               ))}

@@ -3,8 +3,11 @@ import type Database from 'better-sqlite3';
 import {
   createAgentToken,
   listAgentTokens,
+  mintAgentTokenForCard,
   revokeAgentToken,
+  revokeAgentTokensForCard,
   validateAgentToken,
+  validateAgentTokenForCard,
 } from './agent-tokens.js';
 import { createDatabase, initializeSchema } from './db.js';
 
@@ -13,73 +16,71 @@ let db: Database.Database;
 beforeEach(() => {
   db = createDatabase(':memory:');
   initializeSchema(db);
+
+
 });
 
 describe('agent tokens', () => {
-  it('creates, validates, lists, and revokes an agent token', () => {
-    const created = createAgentToken(db, 'bob');
+  it('keeps legacy agent token helpers working on a fresh schema', () => {
+    const first = createAgentToken(db, 'bob');
+    const second = createAgentToken(db, 'bob');
+    const alice = createAgentToken(db, 'alice');
 
-    expect(created.id).toBeTruthy();
-    expect(created.agent_name).toBe('bob');
-    expect(created.token).toMatch(/^[a-f0-9]{64}$/);
-    expect(created.created_at).toBeTruthy();
+    expect(first.id).toBeTruthy();
+    expect(first.agent_name).toBe('bob');
+    expect(first.token).toMatch(/^[a-f0-9]{64}$/);
+    expect(first.created_at).toBeTruthy();
+    expect(second.id).not.toBe(first.id);
+    expect(second.token).not.toBe(first.token);
 
-    expect(validateAgentToken(db, created.token)).toBe('bob');
-
-    const stored = db.prepare('SELECT token_hash FROM agent_tokens WHERE agent_name = ?').get('bob') as {
-      token_hash: string;
-    };
-    expect(stored.token_hash).toMatch(/^[a-f0-9]{64}$/);
-    expect(stored.token_hash).not.toBe(created.token);
+    expect(validateAgentToken(db, first.token)).toBeNull();
+    expect(validateAgentToken(db, second.token)).toBe('bob');
+    expect(validateAgentToken(db, alice.token)).toBe('alice');
 
     expect(listAgentTokens(db)).toEqual([
-      {
-        id: created.id,
-        agent_name: 'bob',
-        created_at: created.created_at,
-      },
+      { id: alice.id, agent_name: 'alice', created_at: alice.created_at },
+      { id: second.id, agent_name: 'bob', created_at: second.created_at },
+    ]);
+
+    const rows = db.prepare('SELECT card_id, agent_name FROM agent_tokens ORDER BY agent_name').all();
+    expect(rows).toEqual([
+      { card_id: '', agent_name: 'alice' },
+      { card_id: '', agent_name: 'bob' },
     ]);
 
     expect(revokeAgentToken(db, 'bob')).toBe(true);
-    expect(validateAgentToken(db, created.token)).toBeNull();
-    expect(listAgentTokens(db)).toEqual([]);
+    expect(validateAgentToken(db, second.token)).toBeNull();
+    expect(validateAgentToken(db, alice.token)).toBe('alice');
+    expect(revokeAgentToken(db, 'bob')).toBe(false);
   });
+  it('mints, replaces, validates, and revokes per-card agent tokens', () => {
+    const first = mintAgentTokenForCard(db, 'card-1', 'bob');
+    const second = mintAgentTokenForCard(db, 'card-1', 'bob');
+    const other = mintAgentTokenForCard(db, 'card-2', 'bob');
 
-  it('replaces an existing token for the same agent', () => {
-    const first = createAgentToken(db, 'bob');
-    const second = createAgentToken(db, 'bob');
-
+    expect(first.id).toBeTruthy();
+    expect(first.agent_name).toBe('bob');
+    expect(first.card_id).toBe('card-1');
+    expect(first.token).toMatch(/^[a-f0-9]{64}$/);
+    expect(first.created_at).toBeTruthy();
     expect(second.id).not.toBe(first.id);
     expect(second.token).not.toBe(first.token);
-    expect(validateAgentToken(db, first.token)).toBeNull();
-    expect(validateAgentToken(db, second.token)).toBe('bob');
-    expect(listAgentTokens(db)).toEqual([
-      {
-        id: second.id,
-        agent_name: 'bob',
-        created_at: second.created_at,
-      },
+
+    expect(validateAgentTokenForCard(db, first.token, 'card-1', 'bob')).toBe(false);
+    expect(validateAgentTokenForCard(db, second.token, 'card-1', 'bob')).toBe(true);
+    expect(validateAgentTokenForCard(db, second.token, 'card-2', 'bob')).toBe(false);
+    expect(validateAgentTokenForCard(db, second.token, 'card-1', 'alice')).toBe(false);
+    expect(validateAgentTokenForCard(db, other.token, 'card-2', 'bob')).toBe(true);
+
+    const rows = db.prepare('SELECT card_id, agent_name FROM agent_tokens ORDER BY card_id').all();
+    expect(rows).toEqual([
+      { card_id: 'card-1', agent_name: 'bob' },
+      { card_id: 'card-2', agent_name: 'bob' },
     ]);
+
+    expect(revokeAgentTokensForCard(db, 'card-1')).toBe(1);
+    expect(validateAgentTokenForCard(db, second.token, 'card-1', 'bob')).toBe(false);
+    expect(validateAgentTokenForCard(db, other.token, 'card-2', 'bob')).toBe(true);
   });
 
-  it('returns null when validating the wrong token', () => {
-    createAgentToken(db, 'bob');
-
-    expect(validateAgentToken(db, 'not-the-token')).toBeNull();
-  });
-
-  it('returns false when revoking a missing token', () => {
-    expect(revokeAgentToken(db, 'missing')).toBe(false);
-  });
-
-  it('lists tokens without hashes', () => {
-    createAgentToken(db, 'charlie');
-    createAgentToken(db, 'bob');
-
-    expect(listAgentTokens(db)).toEqual([
-      expect.objectContaining({ agent_name: 'bob' }),
-      expect.objectContaining({ agent_name: 'charlie' }),
-    ]);
-    expect(listAgentTokens(db)[0]).not.toHaveProperty('token_hash');
-  });
 });

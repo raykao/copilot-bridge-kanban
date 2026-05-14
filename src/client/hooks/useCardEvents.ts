@@ -1,33 +1,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { subscribeToCardEvents } from '@/api/client';
 import type { CardEvent, ToolCall } from '@/api/types';
+import { useCardEventsContext } from '@/contexts/CardEventsContext';
+
+export type ConnectionStatus = 'idle' | 'connected' | 'reconnecting' | 'disconnected';
 
 export interface UseCardEventsOptions {
   cardId: string;
   enabled?: boolean;
 }
 
-export type ConnectionStatus = 'connected' | 'disconnected' | 'idle' | 'reconnecting';
+export interface AwaitingPermission {
+  runId: string;
+  tool: string;
+  detail?: string;
+}
 
 export interface StreamingState {
   isStreaming: boolean;
+  isThinking: boolean;
   content: string;
   toolCalls: ToolCall[];
   connectionStatus: ConnectionStatus;
+  awaitingPermission: AwaitingPermission | null;
   retry: () => void;
 }
 
 const initialStreamingState: StreamingState = {
   isStreaming: false,
+  isThinking: false,
   content: '',
   toolCalls: [],
   connectionStatus: 'idle',
+  awaitingPermission: null,
   retry: () => undefined,
 };
-
-const MAX_RECONNECT_ATTEMPTS = 5;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -154,14 +162,12 @@ export function useCardEvents({
   enabled = true,
 }: UseCardEventsOptions): StreamingState {
   const queryClient = useQueryClient();
+  const { status, subscribe } = useCardEventsContext();
   const isMountedRef = useRef(false);
   const [streamingState, setStreamingState] = useState(initialStreamingState);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
-  const [retryToken, setRetryToken] = useState(0);
 
   const retry = useCallback(() => {
-    setConnectionStatus('reconnecting');
-    setRetryToken((current) => current + 1);
+    return undefined;
   }, []);
 
   const invalidateCardQueries = useMemo(
@@ -179,59 +185,15 @@ export function useCardEvents({
       ...initialStreamingState,
       retry: current.retry,
     }));
-    setConnectionStatus('idle');
   }, [cardId]);
 
-  useEffect(() => {
-    isMountedRef.current = true;
-
-    if (!enabled) {
-      setStreamingState((current) => ({
-        ...initialStreamingState,
-        retry: current.retry,
-      }));
-      setConnectionStatus('idle');
-      return () => {
-        isMountedRef.current = false;
-      };
-    }
-
-    let eventSource: EventSource | null = null;
-    let reconnectTimer: number | null = null;
-    let reconnectAttempts = 0;
-
-    const cleanupEventSource = () => {
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
-      }
-    };
-
-    const scheduleReconnect = () => {
-      if (!isMountedRef.current || reconnectTimer !== null) {
-        return;
-      }
-
-      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        setConnectionStatus('disconnected');
-        return;
-      }
-
-      const delay = Math.min(1000 * 2 ** reconnectAttempts, 30_000);
-      reconnectAttempts += 1;
-      setConnectionStatus('reconnecting');
-      reconnectTimer = window.setTimeout(() => {
-        reconnectTimer = null;
-        connect();
-      }, delay);
-    };
-
-    const handleEvent = (event: CardEvent) => {
+  const handleEvent = useCallback(
+    (event: CardEvent) => {
       if (!isMountedRef.current) {
         return;
       }
 
-      switch (event.type) {
+      switch (event.type as string) {
         case 'message.part': {
           const chunk = getChunkContent(event.data);
           if (!chunk) {
@@ -241,8 +203,21 @@ export function useCardEvents({
           setStreamingState((current) => ({
             ...current,
             isStreaming: true,
+            isThinking: false,
             content: `${current.content}${chunk}`,
           }));
+          return;
+        }
+        case 'run.text_delta': {
+          const chunk = getChunkContent(event.data);
+          if (chunk) {
+            setStreamingState((current) => ({
+              ...current,
+              isStreaming: true,
+              isThinking: false,
+              content: `${current.content}${chunk}`,
+            }));
+          }
           return;
         }
         case 'tool.call': {
@@ -258,6 +233,17 @@ export function useCardEvents({
           }));
           return;
         }
+        case 'tool.start': {
+          const toolCall = toolCallFromEvent(event.data);
+          if (toolCall) {
+            setStreamingState((current) => ({
+              ...current,
+              isStreaming: true,
+              toolCalls: upsertToolCall(current.toolCalls, toolCall),
+            }));
+          }
+          return;
+        }
         case 'tool.result': {
           const toolCall = toolResultFromEvent(event.data);
           if (!toolCall) {
@@ -271,6 +257,43 @@ export function useCardEvents({
           }));
           return;
         }
+        case 'tool.end': {
+          const toolCall = toolResultFromEvent(event.data);
+          if (toolCall) {
+            setStreamingState((current) => ({
+              ...current,
+              toolCalls: upsertToolCall(current.toolCalls, toolCall),
+            }));
+          }
+          return;
+        }
+        case 'run.awaiting': {
+          if (!isRecord(event.data)) {
+            return;
+          }
+
+          const data = event.data;
+          setStreamingState((current) => ({
+            ...current,
+            isStreaming: false,
+            isThinking: false,
+            awaitingPermission: {
+              runId: getString(data.run_id) ?? '',
+              tool: getString(data.tool) ?? '',
+              detail: getString(data.detail),
+            },
+          }));
+          return;
+        }
+        case 'run.queued':
+        case 'run.in_progress': {
+          setStreamingState((current) => ({
+            ...current,
+            isThinking: !current.isStreaming,
+            awaitingPermission: null,
+          }));
+          return;
+        }
         case 'message.completed': {
           void invalidateCardQueries();
           setStreamingState((current) => ({
@@ -279,6 +302,7 @@ export function useCardEvents({
           }));
           return;
         }
+        case 'run.status':
         case 'run.completed':
         case 'run.failed':
         case 'run.cancelled':
@@ -287,46 +311,49 @@ export function useCardEvents({
           setStreamingState((current) => ({
             ...initialStreamingState,
             retry: current.retry,
+            awaitingPermission: null,
           }));
           return;
         }
         default:
           return;
       }
-    };
+    },
+    [invalidateCardQueries],
+  );
 
-    const handleError = () => {
-      cleanupEventSource();
-      scheduleReconnect();
-    };
+  useEffect(() => {
+    isMountedRef.current = true;
 
-    function connect() {
-      if (!isMountedRef.current) {
-        return;
-      }
-
-      cleanupEventSource();
-      eventSource = subscribeToCardEvents(cardId, handleEvent, handleError);
-      eventSource.onopen = () => {
-        reconnectAttempts = 0;
-        setConnectionStatus('connected');
+    if (!enabled) {
+      setStreamingState((current) => ({
+        ...initialStreamingState,
+        retry: current.retry,
+      }));
+      return () => {
+        isMountedRef.current = false;
       };
     }
 
-    connect();
+    const unsubscribe = subscribe(cardId, (eventName, envelope) => {
+      handleEvent({ type: eventName as CardEvent['type'], data: envelope.data });
+    });
 
     return () => {
       isMountedRef.current = false;
-      if (reconnectTimer !== null) {
-        window.clearTimeout(reconnectTimer);
-      }
-      cleanupEventSource();
+      unsubscribe();
     };
-  }, [cardId, enabled, invalidateCardQueries, retryToken]);
+  }, [cardId, enabled, handleEvent, subscribe]);
 
-  return useMemo(() => ({
-    ...streamingState,
-    connectionStatus,
-    retry,
-  }), [streamingState, connectionStatus, retry]);
+  return useMemo(() => {
+    const connectionStatus: ConnectionStatus = enabled
+      ? (status === 'connecting' ? 'idle' : status)
+      : 'idle';
+
+    return {
+      ...streamingState,
+      connectionStatus,
+      retry,
+    };
+  }, [streamingState, enabled, status, retry]);
 }

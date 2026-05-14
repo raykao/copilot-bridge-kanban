@@ -1,3 +1,43 @@
+// Mirror of bridge src/channels/http/agent-card-types.ts. Keep in sync.
+export interface AgentCardCapabilities {
+  streaming: boolean;
+  pushNotifications: boolean;
+}
+
+export interface AgentInterface {
+  url: string;
+  protocolBinding: string;       // "HTTP+JSON" for our REST routes
+  protocolVersion: string;       // "0.3" while we are pre-1.0 internally
+}
+
+export interface AgentSkill {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+}
+
+export type SecuritySchemeMap = Record<string, {
+  // Discriminated union from A2A spec - we only publish the http-bearer variant today.
+  httpAuthSecurityScheme: {
+    scheme: 'Bearer';
+    description?: string;
+  };
+}>;
+
+export interface AgentCard {
+  name: string;
+  description: string;
+  version: string;
+  supportedInterfaces: AgentInterface[];
+  capabilities: AgentCardCapabilities;
+  defaultInputModes: string[];
+  defaultOutputModes: string[];
+  skills: AgentSkill[];
+  securitySchemes?: SecuritySchemeMap;
+  securityRequirements?: Array<Record<string, string[]>>;
+}
+
 export interface Agent {
   name: string;
   description?: string;
@@ -24,6 +64,7 @@ export interface Card {
   workspace_subdir: string | null;
   metadata: Record<string, unknown>;
   labels: string[];
+  runs?: Run[];
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -57,13 +98,20 @@ export interface Run {
   id: string;
   card_id: string;
   agent_name: string;
-  status: "created" | "running" | "completed" | "failed" | "cancelled";
-  bridge_session_id: string | null;
+  status: "created" | "running" | "awaiting" | "completed" | "failed";
+  bridge_run_id: string | null;
   input_comment_id: string | null;
   error: string | null;
   created_at: string;
   finished_at: string | null;
 }
+
+export type ResumeDecision =
+  | "allow-once"
+  | "allow-session"
+  | "allow-all-session"
+  | "allow-all"
+  | "deny";
 
 export interface CardComment {
   id: string;

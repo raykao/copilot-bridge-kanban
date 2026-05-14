@@ -1,6 +1,8 @@
 import { useDroppable } from '@dnd-kit/core';
+import { Plus } from 'lucide-react';
 
 import type { Card as CardType } from '@/api/types';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -12,9 +14,16 @@ interface BoardColumnProps {
   title: string;
   cards: CardType[];
   count?: number;
+  onCreateItem?: () => void;
 }
 
-export function BoardColumn({ columnId, title, cards, count = cards.length }: BoardColumnProps) {
+export function BoardColumn({
+  columnId,
+  title,
+  cards,
+  count = cards.length,
+  onCreateItem,
+}: BoardColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: columnId });
 
   return (
@@ -28,9 +37,24 @@ export function BoardColumn({ columnId, title, cards, count = cards.length }: Bo
       <div className="border-b px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">{title}</h2>
-          <span className="inline-flex min-w-8 items-center justify-center rounded-full bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-sm">
-            {count}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {onCreateItem ? (
+              <Button
+                className="h-6 w-6 p-0"
+                onClick={onCreateItem}
+                size="sm"
+                title={`New work item in ${title}`}
+                type="button"
+                variant="ghost"
+              >
+                <Plus className="size-3.5" />
+                <span className="sr-only">New work item</span>
+              </Button>
+            ) : null}
+            <span className="inline-flex min-w-8 items-center justify-center rounded-full bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-sm">
+              {count}
+            </span>
+          </div>
         </div>
       </div>
 

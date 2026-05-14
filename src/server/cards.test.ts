@@ -196,20 +196,20 @@ describe('runs', () => {
     expect(run.card_id).toBe(card.id);
     expect(run.agent_name).toBe('bob');
     expect(run.status).toBe('created');
-    expect(run.bridge_session_id).toBeNull();
+    expect(run.bridge_run_id).toBeNull();
   });
 
-  it('updates run status and session ID', () => {
+  it('updates run status and bridge run ID', () => {
     const card = createCard(db, { title: 'Update', created_by: 'alice' });
     const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
 
     const updated = updateRun(db, run.id, {
-      status: 'in_progress',
-      bridge_session_id: 'session-123',
+      status: 'running',
+      bridge_run_id: 'run-123',
     });
 
-    expect(updated.status).toBe('in_progress');
-    expect(updated.bridge_session_id).toBe('session-123');
+    expect(updated.status).toBe('running');
+    expect(updated.bridge_run_id).toBe('run-123');
   });
 
   it('completes a run with finished_at', () => {

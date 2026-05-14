@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { getToastErrorMessage } from './api/client';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthGuard } from './components/auth/AuthGuard';
+import { CardEventsProvider } from './contexts/CardEventsContext';
 import { LoginPage } from './components/auth/LoginPage';
 import { AppLayout } from './components/layout/AppLayout';
 import { Toaster } from './components/ui/sonner';
@@ -51,7 +52,13 @@ export function App() {
             <Routes>
               <Route element={<LoginPage />} path="/login" />
               <Route element={<AuthGuard />}>
-                <Route element={<AppLayout />}>
+                <Route
+                  element={
+                    <CardEventsProvider>
+                      <AppLayout />
+                    </CardEventsProvider>
+                  }
+                >
                   <Route element={<BoardPage />} path="/board" />
                   <Route element={<BacklogPage />} path="/backlog" />
                   <Route element={<CardPage />} path="/cards/:id" />

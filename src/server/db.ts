@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
+import { runMigrations } from './migrations.js';
+import { migrations } from './migrations/index.js';
 
 export function createDatabase(dbPath: string): Database.Database {
   if (dbPath !== ':memory:') {
@@ -47,10 +49,11 @@ export function initializeSchema(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       agent_name TEXT NOT NULL,
       token_hash TEXT NOT NULL,
+      card_id TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tokens_name ON agent_tokens(agent_name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tokens_card_bot ON agent_tokens(card_id, agent_name);
     CREATE INDEX IF NOT EXISTS idx_agent_tokens_hash ON agent_tokens(token_hash);
 
     CREATE TABLE IF NOT EXISTS cards (
@@ -98,7 +101,7 @@ export function initializeSchema(db: Database.Database): void {
       card_id TEXT NOT NULL,
       agent_name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'created',
-      bridge_session_id TEXT,
+      bridge_run_id TEXT,
       input_comment_id TEXT,
       error TEXT,
       created_at TEXT NOT NULL,
@@ -122,4 +125,5 @@ export function initializeSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_checkpoints_card ON checkpoints(card_id);
   `);
+  runMigrations(db, migrations);
 }

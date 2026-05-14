@@ -6,6 +6,7 @@ import type { ServerResponse } from 'node:http';
  */
 export class SseManager {
   private clients = new Map<string, Set<ServerResponse>>();
+  private globalClients = new Set<ServerResponse>();
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   subscribe(cardId: string, raw: ServerResponse): void {
@@ -30,15 +31,36 @@ export class SseManager {
     }
   }
 
+  subscribeGlobal(raw: ServerResponse): void {
+    this.globalClients.add(raw);
+
+    raw.on('close', () => {
+      this.unsubscribeGlobal(raw);
+    });
+  }
+
+  unsubscribeGlobal(raw: ServerResponse): void {
+    this.globalClients.delete(raw);
+  }
+
   emit(cardId: string, event: string, data: object): void {
     const set = this.clients.get(cardId);
-    if (!set || set.size === 0) return;
-
     const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
-    for (const raw of set) {
+    if (set && set.size > 0) {
+      for (const raw of set) {
+        if (!raw.writableEnded) {
+          raw.write(frame);
+        }
+      }
+    }
+
+    const envelope = JSON.stringify({ card_id: cardId, data });
+    const globalFrame = `event: ${event}\ndata: ${envelope}\n\n`;
+
+    for (const raw of this.globalClients) {
       if (!raw.writableEnded) {
-        raw.write(frame);
+        raw.write(globalFrame);
       }
     }
   }
@@ -52,6 +74,12 @@ export class SseManager {
           if (!raw.writableEnded) {
             raw.write(':heartbeat\n\n');
           }
+        }
+      }
+
+      for (const raw of this.globalClients) {
+        if (!raw.writableEnded) {
+          raw.write(':heartbeat\n\n');
         }
       }
     }, intervalMs);
@@ -77,6 +105,13 @@ export class SseManager {
       set.clear();
     }
     this.clients.clear();
+
+    for (const raw of this.globalClients) {
+      if (!raw.writableEnded) {
+        raw.end();
+      }
+    }
+    this.globalClients.clear();
   }
 
   /** Number of cards with active subscribers (for testing). */
