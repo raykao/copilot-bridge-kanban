@@ -5,7 +5,6 @@ import type {
   Card,
   CardComment,
   CardDetail,
-  CardEvent,
   CardFilter,
   Checkpoint,
   NewCard,
@@ -309,24 +308,3 @@ const runs = {
 };
 
 export const api = { auth, agents, cards, comments, labels, checkpoints, preferences, runs };
-
-export function subscribeToCardEvents(
-  cardId: string,
-  onEvent: (event: CardEvent) => void,
-  onError?: (error: Event) => void,
-): EventSource {
-  const es = new EventSource(`/api/cards/${cardId}/events`, { withCredentials: true });
-
-  es.onmessage = (e) => {
-    try {
-      const event: CardEvent = JSON.parse(e.data);
-      onEvent(event);
-    } catch {}
-  };
-
-  if (onError) {
-    es.onerror = onError;
-  }
-
-  return es;
-}
