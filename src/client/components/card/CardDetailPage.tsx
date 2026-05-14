@@ -11,7 +11,6 @@ import { RunStatusBar } from "@/components/RunStatusBar";
 import { CheckpointList } from "@/components/card/CheckpointList";
 import { CommentThread } from "@/components/card/CommentThread";
 import { LabelEditor } from "@/components/card/LabelEditor";
-import { StreamingMessage } from "@/components/card/StreamingMessage";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -300,8 +299,7 @@ export function CardDetailPage({
                   setDrawerOpen(true);
                 }}
               />
-              <StreamingMessage streamingState={streamingState} />
-              <CommentThread cardId={card.id} comments={comments} />
+              <CommentThread cardId={card.id} comments={comments} streamingState={streamingState} />
             </section>
           </CardContent>
         </SurfaceCard>

@@ -5,14 +5,17 @@ import { Bot, SendHorizontal, Settings, User } from 'lucide-react';
 import { api } from '@/api/client';
 import type { CardComment } from '@/api/types';
 import { MarkdownContent } from '@/components/card/MarkdownContent';
+import { StreamingMessage } from '@/components/card/StreamingMessage';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import type { StreamingState } from '@/hooks/useCardEvents';
 import { cn } from '@/lib/utils';
 
 interface CommentThreadProps {
   cardId: string;
   comments: CardComment[];
+  streamingState?: StreamingState;
 }
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
@@ -68,7 +71,7 @@ function formatRelativeTime(timestamp: string): string {
   return relativeTimeFormatter.format(Math.round(diffMs / week), 'week');
 }
 
-export function CommentThread({ cardId, comments }: CommentThreadProps) {
+export function CommentThread({ cardId, comments, streamingState }: CommentThreadProps) {
   const queryClient = useQueryClient();
   const [content, setContent] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -147,6 +150,7 @@ export function CommentThread({ cardId, comments }: CommentThreadProps) {
             No comments yet.
           </div>
         )}
+        {streamingState ? <StreamingMessage streamingState={streamingState} /> : null}
         <div ref={endRef} />
       </div>
 
