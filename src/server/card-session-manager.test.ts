@@ -68,7 +68,7 @@ describe('CardSessionManager', () => {
 
     await waitFor(() => streamBridgeRunMock.mock.calls.length === 1);
 
-    expect(fetchMock).toHaveBeenCalledWith('http://bridge.example/runs', {
+    expect(fetchMock).toHaveBeenCalledWith('http://bridge.example/runs', expect.objectContaining({
       method: 'POST',
       headers: {
         Authorization: 'Bearer key-1',
@@ -79,7 +79,8 @@ describe('CardSessionManager', () => {
         input: [{ role: 'user', parts: [{ content: 'hello' }] }],
         session_id: 'card-1',
       }),
-    });
+      signal: expect.any(AbortSignal),
+    }));
     expect(callbacks.onRunCreated).toHaveBeenCalledWith('kanban-run-1', 'bridge-run-1');
     expect(streamBridgeRunMock).toHaveBeenCalledWith({
       bridgeApiUrl: 'http://bridge.example',

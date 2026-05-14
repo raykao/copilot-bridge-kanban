@@ -49,18 +49,30 @@ export class CardSessionManager {
 
   private async dispatchAsync(cardId: string, bot: string, prompt: string, kanbanRunId: string): Promise<void> {
     try {
-      const response = await fetch(`${this.config.bridgeApiUrl}/runs`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.config.bridgeApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          agent_name: bot,
-          input: [{ role: 'user', parts: [{ content: prompt }] }],
-          session_id: cardId,
-        }),
-      });
+      const dispatchTimeout = new AbortController();
+      const dispatchTimeoutId = setTimeout(() => dispatchTimeout.abort(), 15_000);
+      let response: Response;
+      try {
+        response = await fetch(`${this.config.bridgeApiUrl}/runs`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.config.bridgeApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            agent_name: bot,
+            input: [{ role: 'user', parts: [{ content: prompt }] }],
+            session_id: cardId,
+          }),
+          signal: dispatchTimeout.signal,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'unknown error';
+        this.callbacks.onComplete(cardId, kanbanRunId, 'failed', `Bridge POST /runs failed: ${message}`);
+        return;
+      } finally {
+        clearTimeout(dispatchTimeoutId);
+      }
 
       if (response.status === 409) {
         console.warn('session already active for card, skipping dispatch');
