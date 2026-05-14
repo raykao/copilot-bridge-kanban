@@ -77,13 +77,12 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
 
   if (latestRun.status === 'awaiting') {
     const awaitingPermission = streaming.awaitingPermission;
-    const awaitingRunId = awaitingPermission?.runId ?? latestRun.id;
     const toolName = awaitingPermission?.tool || 'Permission requested';
 
     const resume = async (decision: ResumeDecision) => {
       setIsResuming(true);
       try {
-        await api.runs.resume(cardId, awaitingRunId, decision);
+        await api.runs.resume(cardId, latestRun.id, decision);
       } finally {
         setIsResuming(false);
       }

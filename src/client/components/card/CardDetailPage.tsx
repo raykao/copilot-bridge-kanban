@@ -300,11 +300,8 @@ export function CardDetailPage({
                   setDrawerOpen(true);
                 }}
               />
-              <CommentThread cardId={card.id} comments={comments} />
-            </section>
-
-            <section className="space-y-3">
               <StreamingMessage streamingState={streamingState} />
+              <CommentThread cardId={card.id} comments={comments} />
             </section>
           </CardContent>
         </SurfaceCard>
