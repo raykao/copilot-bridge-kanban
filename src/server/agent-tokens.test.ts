@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import {
+  createAgentToken,
+  listAgentTokens,
   mintAgentTokenForCard,
+  revokeAgentToken,
   revokeAgentTokensForCard,
+  validateAgentToken,
   validateAgentTokenForCard,
 } from './agent-tokens.js';
 import { createDatabase, initializeSchema } from './db.js';
@@ -12,9 +16,43 @@ let db: Database.Database;
 beforeEach(() => {
   db = createDatabase(':memory:');
   initializeSchema(db);
+
+
 });
 
 describe('agent tokens', () => {
+  it('keeps legacy agent token helpers working on a fresh schema', () => {
+    const first = createAgentToken(db, 'bob');
+    const second = createAgentToken(db, 'bob');
+    const alice = createAgentToken(db, 'alice');
+
+    expect(first.id).toBeTruthy();
+    expect(first.agent_name).toBe('bob');
+    expect(first.token).toMatch(/^[a-f0-9]{64}$/);
+    expect(first.created_at).toBeTruthy();
+    expect(second.id).not.toBe(first.id);
+    expect(second.token).not.toBe(first.token);
+
+    expect(validateAgentToken(db, first.token)).toBeNull();
+    expect(validateAgentToken(db, second.token)).toBe('bob');
+    expect(validateAgentToken(db, alice.token)).toBe('alice');
+
+    expect(listAgentTokens(db)).toEqual([
+      { id: alice.id, agent_name: 'alice', created_at: alice.created_at },
+      { id: second.id, agent_name: 'bob', created_at: second.created_at },
+    ]);
+
+    const rows = db.prepare('SELECT card_id, agent_name FROM agent_tokens ORDER BY agent_name').all();
+    expect(rows).toEqual([
+      { card_id: '', agent_name: 'alice' },
+      { card_id: '', agent_name: 'bob' },
+    ]);
+
+    expect(revokeAgentToken(db, 'bob')).toBe(true);
+    expect(validateAgentToken(db, second.token)).toBeNull();
+    expect(validateAgentToken(db, alice.token)).toBe('alice');
+    expect(revokeAgentToken(db, 'bob')).toBe(false);
+  });
   it('mints, replaces, validates, and revokes per-card agent tokens', () => {
     const first = mintAgentTokenForCard(db, 'card-1', 'bob');
     const second = mintAgentTokenForCard(db, 'card-1', 'bob');
