@@ -145,6 +145,35 @@ describe('CardSessionManager', () => {
     expect(streamBridgeRunMock).not.toHaveBeenCalled();
   });
 
+  it('marks dispatch failed when bridge POST times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const callbacks = createCallbacks();
+      const fetchMock = vi.fn((_: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('operation aborted')));
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const manager = new CardSessionManager(config, callbacks);
+      manager.dispatch('card-id', 'bob', 'hello', 'kanban-run-id');
+
+      vi.advanceTimersByTime(15001);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(callbacks.onComplete).toHaveBeenCalledWith(
+        'card-id',
+        'kanban-run-id',
+        'failed',
+        expect.stringContaining('Bridge POST /runs failed:'),
+      );
+      expect(streamBridgeRunMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reconnects active runs without posting to bridge', () => {
     const callbacks = createCallbacks();
     const fetchMock = vi.fn();
