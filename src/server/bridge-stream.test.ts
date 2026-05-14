@@ -303,7 +303,7 @@ describe('registerBridgePushNotification', () => {
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://bridge.example/agents/bot%20with%20spaces%2Fslash/tasks::pushNotificationConfig::set',
+      'http://bridge.example/agents/bot%20with%20spaces%2Fslash/tasks:pushNotificationConfig:set',
       {
         method: 'POST',
         headers: {

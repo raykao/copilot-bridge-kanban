@@ -245,7 +245,7 @@ export interface RegisterPushOptions {
 
 export async function registerBridgePushNotification(opts: RegisterPushOptions): Promise<void> {
   const fetchImpl = opts.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  const url = `${opts.bridgeApiUrl}/agents/${encodeURIComponent(opts.bot)}/tasks::pushNotificationConfig::set`;
+  const url = `${opts.bridgeApiUrl}/agents/${encodeURIComponent(opts.bot)}/tasks:pushNotificationConfig:set`;
   const res = await fetchImpl(url, {
     method: 'POST',
     headers: {
