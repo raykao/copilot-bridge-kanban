@@ -30,8 +30,8 @@ describe('database schema', () => {
       'users',
     ]);
     expect(indexes.map((i) => i.name)).toEqual([
+      'idx_agent_tokens_card_bot',
       'idx_agent_tokens_hash',
-      'idx_agent_tokens_name',
       'idx_card_comments_card',
       'idx_card_labels_label',
       'idx_cards_agent_status',

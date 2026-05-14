@@ -60,7 +60,7 @@ export interface Run {
   id: string;
   card_id: string;
   agent_name: string;
-  status: 'created' | 'running' | 'awaiting' | 'completed' | 'failed';
+  status: 'created' | 'running' | 'awaiting' | 'completed' | 'failed' | 'cancelled';
   bridge_run_id: string | null;
   input_comment_id: string | null;
   error: string | null;
@@ -290,6 +290,11 @@ export function updateRun(db: Database.Database, id: string, patch: Partial<Run>
   const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as Run;
   if (!run) throw new Error(`Run ${id} not found`);
   return run;
+}
+
+export function getRunByBridgeRunId(db: Database.Database, bridgeRunId: string): Run | null {
+  const row = db.prepare('SELECT * FROM runs WHERE bridge_run_id = ?').get(bridgeRunId) as Run | undefined;
+  return row ?? null;
 }
 
 export function listRuns(db: Database.Database, cardId: string): Run[] {

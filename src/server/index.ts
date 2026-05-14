@@ -4,6 +4,7 @@ import { registerAuthRoutes, registerSessionMiddleware } from './auth.js';
 import { registerAgentRoutes } from './agents.js';
 import { registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
+import { registerPushCallbackRoutes } from './push-callback-routes.js';
 import { createServer } from './server.js';
 import { SseManager } from './sse.js';
 
@@ -19,6 +20,7 @@ async function main(): Promise<void> {
   registerSessionMiddleware(server, db);
   registerAuthRoutes(server, db);
   registerCardRoutes(server, db, config, sseManager);
+  registerPushCallbackRoutes(server, db, sseManager);
   registerAgentRoutes(server, config);
   registerPreferencesRoutes(server, db);
 
