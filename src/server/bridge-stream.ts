@@ -27,7 +27,7 @@ export interface BridgeStreamOptions {
   onEvent: (event: BridgeEvent) => void;
   onClose: () => void;
   /** Called with the bridge task id when the first `task` SSE frame is received. */
-  onReady?: (bridgeRunId: string) => void;
+  onReady?: (bridgeRunId: string) => void | Promise<void>;
   /** Called when the stream fails (non-ok response or thrown exception). status=0 means exception. */
   onError?: (status: number, body: string) => void;
 }
@@ -210,7 +210,7 @@ export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => voi
           if (!event) continue;
 
           if (event.type === 'run.created' && opts.onReady) {
-            opts.onReady(event.data.run_id as string);
+            await opts.onReady(event.data.run_id as string);
           }
 
           opts.onEvent(event);
@@ -231,4 +231,37 @@ export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => voi
   return () => {
     controller.abort();
   };
+}
+
+export interface RegisterPushOptions {
+  bridgeApiUrl: string;
+  bridgeApiKey: string;
+  bot: string;
+  bridgeRunId: string;
+  callbackUrl: string;
+  callbackToken: string;
+  fetchImpl?: typeof fetch;
+}
+
+export async function registerBridgePushNotification(opts: RegisterPushOptions): Promise<void> {
+  const fetchImpl = opts.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  const url = `${opts.bridgeApiUrl}/agents/${encodeURIComponent(opts.bot)}/tasks::pushNotificationConfig::set`;
+  const res = await fetchImpl(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${opts.bridgeApiKey}`,
+    },
+    body: JSON.stringify({
+      taskId: opts.bridgeRunId,
+      pushNotificationConfig: {
+        url: opts.callbackUrl,
+        token: opts.callbackToken,
+      },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`push registration failed: ${res.status} ${body}`);
+  }
 }

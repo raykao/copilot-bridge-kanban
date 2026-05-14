@@ -4,6 +4,7 @@ export interface AppConfig {
   port: number;
   bridgeApiUrl: string;
   bridgeApiKey: string;
+  kanbanBaseUrl: string;
   sessionSecret: string;
   dbPath: string;
   logLevel: LogLevel;
@@ -18,6 +19,11 @@ export function loadConfig(): AppConfig {
   const bridgeApiKey = process.env.BRIDGE_API_KEY;
   if (!bridgeApiKey) {
     throw new Error('BRIDGE_API_KEY environment variable is required');
+  }
+
+  const kanbanBaseUrl = process.env.KANBAN_BASE_URL;
+  if (!kanbanBaseUrl) {
+    throw new Error('KANBAN_BASE_URL environment variable is required');
   }
 
   const sessionSecret = process.env.SESSION_SECRET;
@@ -35,6 +41,7 @@ export function loadConfig(): AppConfig {
     port: parseInt(process.env.PORT ?? '3000', 10),
     bridgeApiUrl: bridgeApiUrl.replace(/\/+$/, ''),
     bridgeApiKey,
+    kanbanBaseUrl: kanbanBaseUrl.replace(/\/+$/, ''),
     sessionSecret,
     dbPath: process.env.DB_PATH ?? './data/kanban.db',
     logLevel,

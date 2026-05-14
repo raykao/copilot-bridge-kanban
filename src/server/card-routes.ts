@@ -21,7 +21,8 @@ import {
   deleteCheckpoint,
   type CardFilter,
 } from './cards.js';
-import { subscribeToBridgeRunStream } from './bridge-stream.js';
+import { mintAgentTokenForCard } from './agent-tokens.js';
+import { registerBridgePushNotification, subscribeToBridgeRunStream } from './bridge-stream.js';
 import type { SseManager } from './sse.js';
 
 const resumeDecisions = new Set([
@@ -117,8 +118,22 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
           bot,
           prompt,
           cardId: card.id,
-          onReady: (bridgeRunId) => {
+          onReady: async (bridgeRunId) => {
             updateRun(db, run.id, { status: 'running', bridge_run_id: bridgeRunId });
+            try {
+              const minted = mintAgentTokenForCard(db, card.id, bot);
+              const callbackUrl = `${config.kanbanBaseUrl}/api/internal/push-callback/${encodeURIComponent(card.id)}/${encodeURIComponent(bot)}`;
+              await registerBridgePushNotification({
+                bridgeApiUrl: config.bridgeApiUrl,
+                bridgeApiKey: config.bridgeApiKey,
+                bot,
+                bridgeRunId,
+                callbackUrl,
+                callbackToken: minted.token,
+              });
+            } catch (err) {
+              app.log.warn({ err, cardId: card.id, runId: run.id }, 'failed to register push notification config; falling back to SSE-only persistence');
+            }
           },
           onError: (status, errBody) => {
             updateRun(db, run.id, {
@@ -297,8 +312,22 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
           bot,
           prompt: body.content as string,
           cardId: id,
-          onReady: (bridgeRunId) => {
+          onReady: async (bridgeRunId) => {
             updateRun(db, run.id, { status: 'running', bridge_run_id: bridgeRunId });
+            try {
+              const minted = mintAgentTokenForCard(db, id, bot);
+              const callbackUrl = `${config.kanbanBaseUrl}/api/internal/push-callback/${encodeURIComponent(id)}/${encodeURIComponent(bot)}`;
+              await registerBridgePushNotification({
+                bridgeApiUrl: config.bridgeApiUrl,
+                bridgeApiKey: config.bridgeApiKey,
+                bot,
+                bridgeRunId,
+                callbackUrl,
+                callbackToken: minted.token,
+              });
+            } catch (err) {
+              app.log.warn({ err, cardId: id, runId: run.id }, 'failed to register push notification config; falling back to SSE-only persistence');
+            }
           },
           onError: (status, errBody) => {
             updateRun(db, run.id, {
