@@ -46,6 +46,19 @@ export interface Agent {
   metadata?: Record<string, unknown>;
 }
 
+export interface AgentTokenSummary {
+  id: string;
+  agent_name: string;
+  created_at: string;
+}
+
+export interface AgentTokenCreateResult {
+  id: string;
+  agent_name: string;
+  token: string;
+  created_at: string;
+}
+
 export interface Card {
   id: string;
   type: "work" | "chat";

@@ -1,6 +1,8 @@
 import type {
   Agent,
   AgentCard,
+  AgentTokenCreateResult,
+  AgentTokenSummary,
   AuthUser,
   Card,
   CardComment,
@@ -162,6 +164,26 @@ const agents = {
   },
 };
 
+const adminTokens = {
+  async list(): Promise<AgentTokenSummary[]> {
+    const data = await apiFetch<{ tokens: AgentTokenSummary[] }>('/api/admin/agent-tokens');
+    return unwrapArray<AgentTokenSummary>(data, 'tokens');
+  },
+
+  create(agentName: string): Promise<AgentTokenCreateResult> {
+    return apiFetch<AgentTokenCreateResult>('/api/admin/agent-tokens', {
+      method: 'POST',
+      body: JSON.stringify({ agent_name: agentName }),
+    });
+  },
+
+  async revoke(agentName: string): Promise<void> {
+    await apiFetch<void>(`/api/admin/agent-tokens/${encodeURIComponent(agentName)}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
 const cards = {
   async create(card: NewCard): Promise<Card> {
     const result = await apiFetch<{ card: Card }>('/api/cards', {
@@ -307,4 +329,4 @@ const runs = {
   },
 };
 
-export const api = { auth, agents, cards, comments, labels, checkpoints, preferences, runs };
+export const api = { auth, agents, adminTokens, cards, comments, labels, checkpoints, preferences, runs };
