@@ -301,6 +301,12 @@ export function listRuns(db: Database.Database, cardId: string): Run[] {
   return db.prepare('SELECT * FROM runs WHERE card_id = ? ORDER BY created_at ASC').all(cardId) as Run[];
 }
 
+export function listActiveRunsGlobal(db: Database.Database): Run[] {
+  return db.prepare(
+    `SELECT * FROM runs WHERE status IN ('running', 'awaiting') AND bridge_run_id IS NOT NULL ORDER BY created_at ASC`,
+  ).all() as Run[];
+}
+
 // ---------------------------------------------------------------------------
 // Checkpoints
 // ---------------------------------------------------------------------------
