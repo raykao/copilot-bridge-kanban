@@ -155,7 +155,7 @@ export function CommentThread({ cardId, comments }: CommentThreadProps) {
           disabled={addCommentMutation.isPending}
           onChange={(event) => setContent(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
               void handleSubmit();
             }
@@ -165,7 +165,7 @@ export function CommentThread({ cardId, comments }: CommentThreadProps) {
           value={content}
         />
         <div className="flex items-center justify-between gap-3">
-          <div className="text-xs text-muted-foreground">Press Ctrl+Enter to send.</div>
+          <div className="text-xs text-muted-foreground">Press Enter to send, Shift+Enter for new line.</div>
           <Button disabled={addCommentMutation.isPending || !content.trim()} type="submit">
             <SendHorizontal />
             {addCommentMutation.isPending ? 'Sending...' : 'Send'}

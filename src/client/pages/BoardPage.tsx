@@ -20,6 +20,7 @@ function sortCards(cards: Card[]): Card[] {
 
 export function BoardPage() {
   const [createOpen, setCreateOpen] = useState(false);
+  const [createInitialAgent, setCreateInitialAgent] = useState<string | undefined>(undefined);
   const filters = useFilterStore();
 
   const agentsQuery = useQuery({
@@ -53,6 +54,11 @@ export function BoardPage() {
     [agents, filteredCards],
   );
 
+  function handleCreateItem(columnId: string) {
+    setCreateInitialAgent(columnId);
+    setCreateOpen(true);
+  }
+
   if (agentsQuery.isPending || cardsQuery.isPending) {
     return <BoardPageSkeleton columns={4} />;
   }
@@ -81,18 +87,25 @@ export function BoardPage() {
 
           <Button className="min-h-11 w-full sm:w-auto" onClick={() => setCreateOpen(true)}>
             <Plus />
-            New Card
+            New Work Item
           </Button>
         </div>
 
         <FilterBar cards={cards} />
 
         <div className="min-h-0 flex-1">
-          <BoardView columns={columns} mode="agent" />
+          <BoardView columns={columns} mode="agent" onCreateItem={handleCreateItem} />
         </div>
       </div>
 
-      <CreateCardModal onOpenChange={setCreateOpen} open={createOpen} />
+      <CreateCardModal
+        initialValues={createInitialAgent ? { agent: createInitialAgent } : undefined}
+        onOpenChange={(nextOpen) => {
+          setCreateOpen(nextOpen);
+          if (!nextOpen) setCreateInitialAgent(undefined);
+        }}
+        open={createOpen}
+      />
     </>
   );
 }

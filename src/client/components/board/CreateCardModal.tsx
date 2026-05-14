@@ -24,11 +24,12 @@ import { Textarea } from '@/components/ui/textarea';
 interface CreateCardModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialValues?: { agent?: string };
 }
 
 const noAgentValue = 'none';
 
-export function CreateCardModal({ open, onOpenChange }: CreateCardModalProps) {
+export function CreateCardModal({ open, onOpenChange, initialValues }: CreateCardModalProps) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -73,8 +74,10 @@ export function CreateCardModal({ open, onOpenChange }: CreateCardModalProps) {
       setTitleError(null);
       setSubmitError(null);
       mutationRef.current.reset();
+    } else {
+      setAgent(initialValues?.agent ?? noAgentValue);
     }
-  }, [open]);
+  }, [open, initialValues?.agent]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
