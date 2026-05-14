@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import {
   createAgentToken,
+  createGlobalAgentToken,
   listAgentTokens,
   mintAgentTokenForCard,
+  revokeGlobalAgentToken,
   revokeAgentToken,
   revokeAgentTokensForCard,
   validateAgentToken,
@@ -44,8 +46,8 @@ describe('agent tokens', () => {
 
     const rows = db.prepare('SELECT card_id, agent_name FROM agent_tokens ORDER BY agent_name').all();
     expect(rows).toEqual([
-      { card_id: '', agent_name: 'alice' },
-      { card_id: '', agent_name: 'bob' },
+      { card_id: null, agent_name: 'alice' },
+      { card_id: null, agent_name: 'bob' },
     ]);
 
     expect(revokeAgentToken(db, 'bob')).toBe(true);
@@ -53,6 +55,24 @@ describe('agent tokens', () => {
     expect(validateAgentToken(db, alice.token)).toBe('alice');
     expect(revokeAgentToken(db, 'bob')).toBe(false);
   });
+  it('creates and revokes global tokens without removing card-scoped tokens', () => {
+    const cardToken = mintAgentTokenForCard(db, 'card-1', 'bob');
+    const firstGlobal = createGlobalAgentToken(db, 'bob');
+    const secondGlobal = createGlobalAgentToken(db, 'bob');
+
+    expect(validateAgentToken(db, firstGlobal.token)).toBeNull();
+    expect(validateAgentToken(db, secondGlobal.token)).toBe('bob');
+    expect(validateAgentTokenForCard(db, cardToken.token, 'card-1', 'bob')).toBe(true);
+    expect(listAgentTokens(db)).toEqual([
+      { id: secondGlobal.id, agent_name: 'bob', created_at: secondGlobal.created_at },
+    ]);
+
+    expect(revokeGlobalAgentToken(db, 'bob')).toBe(true);
+    expect(validateAgentToken(db, secondGlobal.token)).toBeNull();
+    expect(validateAgentTokenForCard(db, cardToken.token, 'card-1', 'bob')).toBe(true);
+    expect(revokeGlobalAgentToken(db, 'bob')).toBe(false);
+  });
+
   it('mints, replaces, validates, and revokes per-card agent tokens', () => {
     const first = mintAgentTokenForCard(db, 'card-1', 'bob');
     const second = mintAgentTokenForCard(db, 'card-1', 'bob');

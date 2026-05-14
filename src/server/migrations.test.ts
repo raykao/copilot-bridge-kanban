@@ -15,6 +15,12 @@ function getColumnNames(db: Database.Database, table: string): string[] {
   ).map((r) => r.name);
 }
 
+function getColumn(db: Database.Database, table: string, column: string): { name: string; notnull: number } {
+  return (
+    db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string; notnull: number }>
+  ).find((r) => r.name === column)!;
+}
+
 function createLegacyAgentTokensTable(db: Database.Database, withRow = false): void {
   db.exec(`
     CREATE TABLE agent_tokens (
@@ -85,12 +91,13 @@ describe('runMigrations', () => {
     expect(getUserVersion(db)).toBe(0);
   });
 
-  it('fresh DB starts user_version=2 and agent_tokens has card_id', () => {
+  it('fresh DB starts user_version=3 and agent_tokens has nullable card_id', () => {
     const db = createDatabase(':memory:');
     initializeSchema(db);
 
-    expect(getUserVersion(db)).toBe(2);
+    expect(getUserVersion(db)).toBe(3);
     expect(getColumnNames(db, 'agent_tokens')).toContain('card_id');
+    expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
   });
 
   it('version 1 DB clears stale agent token rows and creates the card bot index', () => {
@@ -103,23 +110,71 @@ describe('runMigrations', () => {
     const count = db.prepare('SELECT COUNT(*) AS c FROM agent_tokens').get() as { c: number };
     const indexes = (db.prepare('PRAGMA index_list(agent_tokens)').all() as Array<{ name: string }>).map((r) => r.name);
 
-    expect(getUserVersion(db)).toBe(2);
+    expect(getUserVersion(db)).toBe(3);
     expect(getColumnNames(db, 'agent_tokens')).toContain('card_id');
+    expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(count.c).toBe(0);
     expect(indexes).toContain('idx_agent_tokens_card_bot');
     expect(indexes).not.toContain('idx_agent_tokens_name');
   });
+
+  it('version 2 DB relaxes agent_tokens.card_id and converts empty globals to NULL', () => {
+    const db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE agent_tokens (
+        id TEXT PRIMARY KEY,
+        agent_name TEXT NOT NULL,
+        token_hash TEXT NOT NULL,
+        card_id TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX idx_agent_tokens_card_bot ON agent_tokens(card_id, agent_name);
+      CREATE INDEX idx_agent_tokens_hash ON agent_tokens(token_hash);
+    `);
+    db.prepare(
+      `INSERT INTO agent_tokens (id, agent_name, token_hash, card_id, created_at)
+       VALUES
+       ('global-1', 'bob', 'global-hash', '', '2026-01-01T00:00:00.000Z'),
+       ('card-1', 'alice', 'card-hash', 'card-123', '2026-01-02T00:00:00.000Z')`,
+    ).run();
+    db.pragma('user_version = 2');
+
+    runMigrations(db, migrations);
+
+    const rows = db
+      .prepare('SELECT id, agent_name, token_hash, card_id, created_at FROM agent_tokens ORDER BY id')
+      .all();
+
+    expect(getUserVersion(db)).toBe(3);
+    expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
+    expect(rows).toEqual([
+      {
+        id: 'card-1',
+        agent_name: 'alice',
+        token_hash: 'card-hash',
+        card_id: 'card-123',
+        created_at: '2026-01-02T00:00:00.000Z',
+      },
+      {
+        id: 'global-1',
+        agent_name: 'bob',
+        token_hash: 'global-hash',
+        card_id: null,
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+  });
 });
 
 describe('migrations', () => {
-  it('fresh DB (from initializeSchema): bridge_run_id present, no bridge_session_id, user_version=2', () => {
+  it('fresh DB (from initializeSchema): bridge_run_id present, no bridge_session_id, user_version=3', () => {
     const db = createDatabase(':memory:');
     initializeSchema(db);
 
     const cols = getColumnNames(db, 'runs');
     expect(cols).toContain('bridge_run_id');
     expect(cols).not.toContain('bridge_session_id');
-    expect(getUserVersion(db)).toBe(2);
+    expect(getUserVersion(db)).toBe(3);
   });
 
   it('pre-Phase-B DB: renames bridge_session_id to bridge_run_id', () => {
@@ -148,7 +203,7 @@ describe('migrations', () => {
     const cols = getColumnNames(db, 'runs');
     expect(cols).toContain('bridge_run_id');
     expect(cols).not.toContain('bridge_session_id');
-    expect(getUserVersion(db)).toBe(2);
+    expect(getUserVersion(db)).toBe(3);
 
     const row = db.prepare('SELECT bridge_run_id FROM runs WHERE id = ?').get('r1') as { bridge_run_id: string };
     expect(row.bridge_run_id).toBe('abc');
@@ -181,7 +236,7 @@ describe('migrations', () => {
     const cols = getColumnNames(db, 'runs');
     expect(cols).toContain('bridge_run_id');
     expect(cols).not.toContain('bridge_session_id');
-    expect(getUserVersion(db)).toBe(2);
+    expect(getUserVersion(db)).toBe(3);
 
     const row = db.prepare('SELECT bridge_run_id FROM runs WHERE id = ?').get('r1') as { bridge_run_id: string };
     expect(row.bridge_run_id).toBe('new');

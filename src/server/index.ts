@@ -2,6 +2,7 @@ import { loadConfig } from './config.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { registerAuthRoutes, registerSessionMiddleware } from './auth.js';
 import { registerAgentRoutes } from './agents.js';
+import { registerAdminRoutes } from './admin-routes.js';
 import { buildSessionCallbacks, registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerPushCallbackRoutes } from './push-callback-routes.js';
@@ -34,6 +35,7 @@ async function main(): Promise<void> {
   registerCardRoutes(server, db, config, sseManager, cardSessionManager);
   registerPushCallbackRoutes(server, db, sseManager);
   registerAgentRoutes(server, config);
+  registerAdminRoutes(server, db);
   registerPreferencesRoutes(server, db);
 
   await server.listen({ host: '0.0.0.0', port: config.port });

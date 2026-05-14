@@ -49,7 +49,7 @@ export function initializeSchema(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       agent_name TEXT NOT NULL,
       token_hash TEXT NOT NULL,
-      card_id TEXT NOT NULL DEFAULT '',
+      card_id TEXT,
       created_at TEXT NOT NULL
     );
 

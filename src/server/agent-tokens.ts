@@ -48,6 +48,29 @@ export function createAgentToken(db: Database.Database, agentName: string): Agen
   };
 }
 
+export function createGlobalAgentToken(db: Database.Database, agentName: string): AgentTokenCreateResult {
+  const id = crypto.randomUUID();
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(token);
+  const createdAt = now();
+
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM agent_tokens WHERE agent_name = ? AND card_id IS NULL').run(agentName);
+    db.prepare(
+      `INSERT INTO agent_tokens (id, agent_name, card_id, token_hash, created_at)
+       VALUES (?, ?, NULL, ?, ?)`,
+    ).run(id, agentName, tokenHash, createdAt);
+  });
+  tx();
+
+  return {
+    id,
+    agent_name: agentName,
+    token,
+    created_at: createdAt,
+  };
+}
+
 export function validateAgentToken(db: Database.Database, token: string): string | null {
   const tokenHash = hashToken(token);
   const row = db.prepare('SELECT agent_name FROM agent_tokens WHERE token_hash = ?').get(tokenHash) as
@@ -61,8 +84,13 @@ export function revokeAgentToken(db: Database.Database, agentName: string): bool
   return result.changes > 0;
 }
 
+export function revokeGlobalAgentToken(db: Database.Database, agentName: string): boolean {
+  const result = db.prepare('DELETE FROM agent_tokens WHERE agent_name = ? AND card_id IS NULL').run(agentName);
+  return result.changes > 0;
+}
+
 export function listAgentTokens(db: Database.Database): AgentTokenSummary[] {
-  return db.prepare('SELECT id, agent_name, created_at FROM agent_tokens ORDER BY agent_name ASC').all() as AgentTokenSummary[];
+  return db.prepare('SELECT id, agent_name, created_at FROM agent_tokens WHERE card_id IS NULL ORDER BY agent_name ASC').all() as AgentTokenSummary[];
 }
 
 export interface AgentTokenMintResult {
