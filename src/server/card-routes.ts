@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { AppConfig } from './config.js';
-import { CardSessionManager, type DispatchCallbacks } from './card-session-manager.js';
+import type { CardSessionManager, DispatchCallbacks } from './card-session-manager.js';
 import {
   createCard,
   getCard,

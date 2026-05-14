@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { registerBridgePushNotification, streamBridgeRun, subscribeToBridgeRunStream, type BridgeEvent } from './bridge-stream.js';
+import { streamBridgeRun, subscribeToBridgeRunStream, type BridgeEvent } from './bridge-stream.js';
 
 function createStream(chunks: string[], onCancel?: () => void): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -385,69 +385,5 @@ describe('subscribeToBridgeRunStream', () => {
     expect(readyOrder).toBeLessThan(onReady.mock.invocationCallOrder[0] + 1); // always true, sanity
     // Verify the run.created event was also emitted via onEvent
     expect(events[0]).toEqual({ type: 'run.created', data: { run_id: 'task-42' } });
-  });
-});
-
-describe('registerBridgePushNotification', () => {
-  it('posts push notification config to the bridge', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-
-    await registerBridgePushNotification({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      bot: 'bot with spaces/slash',
-      bridgeRunId: 'task-1',
-      callbackUrl: 'http://kanban.example/api/internal/push-callback/card-1/bob',
-      callbackToken: 'callback-token',
-      fetchImpl,
-    });
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      'http://bridge.example/agents/bot%20with%20spaces%2Fslash/tasks:pushNotificationConfig:set',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer key-1',
-        },
-        body: JSON.stringify({
-          taskId: 'task-1',
-          pushNotificationConfig: {
-            url: 'http://kanban.example/api/internal/push-callback/card-1/bob',
-            token: 'callback-token',
-          },
-        }),
-      },
-    );
-  });
-
-  it('rejects when bridge returns non-2xx', async () => {
-    const fetchImpl = vi.fn(async () => new Response('bad gateway', { status: 500 }));
-
-    await expect(registerBridgePushNotification({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      bot: 'bob',
-      bridgeRunId: 'task-1',
-      callbackUrl: 'http://kanban.example/callback',
-      callbackToken: 'callback-token',
-      fetchImpl,
-    })).rejects.toThrow('push registration failed: 500');
-  });
-
-  it('rejects when fetch throws', async () => {
-    const fetchImpl = vi.fn(async () => {
-      throw new Error('network down');
-    });
-
-    await expect(registerBridgePushNotification({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      bot: 'bob',
-      bridgeRunId: 'task-1',
-      callbackUrl: 'http://kanban.example/callback',
-      callbackToken: 'callback-token',
-      fetchImpl,
-    })).rejects.toThrow('network down');
   });
 });

@@ -352,36 +352,3 @@ export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => voi
     controller.abort();
   };
 }
-
-export interface RegisterPushOptions {
-  bridgeApiUrl: string;
-  bridgeApiKey: string;
-  bot: string;
-  bridgeRunId: string;
-  callbackUrl: string;
-  callbackToken: string;
-  fetchImpl?: typeof fetch;
-}
-
-export async function registerBridgePushNotification(opts: RegisterPushOptions): Promise<void> {
-  const fetchImpl = opts.fetchImpl ?? globalThis.fetch.bind(globalThis);
-  const url = `${opts.bridgeApiUrl}/agents/${encodeURIComponent(opts.bot)}/tasks:pushNotificationConfig:set`;
-  const res = await fetchImpl(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${opts.bridgeApiKey}`,
-    },
-    body: JSON.stringify({
-      taskId: opts.bridgeRunId,
-      pushNotificationConfig: {
-        url: opts.callbackUrl,
-        token: opts.callbackToken,
-      },
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`push registration failed: ${res.status} ${body}`);
-  }
-}
