@@ -468,7 +468,7 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     }
 
     try {
-      const bridgeResponse = await fetch(`${config.bridgeApiUrl}/v1/runs/${bridgeRunId}/resume`, {
+      const bridgeResponse = await fetch(`${config.bridgeApiUrl}/runs/${bridgeRunId}/resume`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${config.bridgeApiKey}`,

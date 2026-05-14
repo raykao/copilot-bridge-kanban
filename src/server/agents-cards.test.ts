@@ -146,6 +146,6 @@ describe('registerAgentRoutes agent cards', () => {
 
     expect(response.statusCode).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://localhost:7878/v1/agents/cards');
+    expect((fetchMock.mock.calls as unknown as Array<[string]>).at(0)?.[0]).toBe('http://localhost:7878/v1/agents/cards');
   });
 });

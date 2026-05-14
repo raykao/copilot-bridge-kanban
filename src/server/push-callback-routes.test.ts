@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
+import type { InjectPayload, Response as InjectResponse } from 'light-my-request';
 import { mintAgentTokenForCard } from './agent-tokens.js';
 import { addComment, createCard, createRun, listComments, listRuns, updateRun } from './cards.js';
 import { type AppConfig } from './config.js';
@@ -57,14 +58,14 @@ async function postCallback(
   cardId: string,
   bot: string,
   token: string | null,
-  payload: unknown,
+  requestPayload: InjectPayload,
   contentType = 'application/json',
-) {
-  return server.inject({
+): Promise<InjectResponse> {
+  return await server.inject({
     method: 'POST',
     url: `/api/internal/push-callback/${cardId}/${bot}`,
     headers: token ? { authorization: `Bearer ${token}`, 'content-type': contentType } : { 'content-type': contentType },
-    payload,
+    payload: requestPayload,
   });
 }
 

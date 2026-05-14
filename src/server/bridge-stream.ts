@@ -98,7 +98,13 @@ function mapA2AEvent(eventType: string, data: Record<string, unknown>): BridgeEv
       return { type: 'run.in_progress', data: { run_id: data.taskId } };
     }
     if (state === 'input-required') {
-      return { type: 'run.awaiting', data: { run_id: data.taskId } };
+      const message = (status as { message?: unknown }).message;
+      const parts = message && typeof message === 'object' && !Array.isArray(message)
+        ? (message as { parts?: unknown }).parts
+        : undefined;
+      const statusText = textFromParts(parts);
+      const tool = statusText.replace(/^Permission required:\s*/i, '').trim();
+      return { type: 'run.awaiting', data: { run_id: data.taskId, tool } };
     }
     if (state === 'completed') {
       return { type: 'run.completed', data: { run_id: data.taskId } };

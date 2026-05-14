@@ -371,7 +371,7 @@ describe('run routes', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:7878/v1/runs/br-test-1/resume',
+      'http://localhost:7878/runs/br-test-1/resume',
       {
         method: 'POST',
         headers: {
