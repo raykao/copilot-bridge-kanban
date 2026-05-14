@@ -15,6 +15,7 @@ import {
   createRun,
   updateRun,
   listRuns,
+  listActiveRunsGlobal,
   createCheckpoint,
   listCheckpoints,
   deleteCheckpoint,
@@ -237,6 +238,25 @@ describe('runs', () => {
     createRun(db, { card_id: card.id, agent_name: 'bob' });
 
     expect(listRuns(db, card.id)).toHaveLength(2);
+  });
+
+  it('lists active runs with bridge run IDs across all cards', () => {
+    const card = createCard(db, { title: 'Active runs', created_by: 'alice' });
+    const running = createRun(db, { card_id: card.id, agent_name: 'bob' });
+    const awaiting = createRun(db, { card_id: card.id, agent_name: 'bob' });
+    const completed = createRun(db, { card_id: card.id, agent_name: 'bob' });
+    const runningWithoutBridgeRunId = createRun(db, { card_id: card.id, agent_name: 'bob' });
+
+    updateRun(db, running.id, { status: 'running', bridge_run_id: 'bridge-running' });
+    updateRun(db, awaiting.id, { status: 'awaiting', bridge_run_id: 'bridge-awaiting' });
+    updateRun(db, completed.id, { status: 'completed', bridge_run_id: 'bridge-completed' });
+    updateRun(db, runningWithoutBridgeRunId.id, { status: 'running' });
+
+    db.prepare('UPDATE runs SET created_at = ? WHERE id = ?').run('2026-01-01T00:00:00.000Z', running.id);
+    db.prepare('UPDATE runs SET created_at = ? WHERE id = ?').run('2026-01-01T00:00:01.000Z', awaiting.id);
+
+    const activeRuns = listActiveRunsGlobal(db);
+    expect(activeRuns.map((run) => run.id)).toEqual([running.id, awaiting.id]);
   });
 });
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { registerBridgePushNotification, subscribeToBridgeRunStream, type BridgeEvent } from './bridge-stream.js';
+import { streamBridgeRun, subscribeToBridgeRunStream, type BridgeEvent } from './bridge-stream.js';
 
 function createStream(chunks: string[], onCancel?: () => void): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -39,6 +39,18 @@ function streamOptions(overrides: Partial<Parameters<typeof subscribeToBridgeRun
   };
 }
 
+
+function persistedStreamOptions(overrides: Partial<Parameters<typeof streamBridgeRun>[0]> = {}) {
+  return {
+    bridgeApiUrl: 'http://bridge.example',
+    bridgeApiKey: 'key-1',
+    bridgeRunId: 'run-1',
+    onEvent: vi.fn(),
+    onClose: vi.fn(),
+    ...overrides,
+  };
+}
+
 async function waitFor(condition: () => boolean, timeoutMs = 1000): Promise<void> {
   const start = Date.now();
   while (!condition()) {
@@ -48,6 +60,94 @@ async function waitFor(condition: () => boolean, timeoutMs = 1000): Promise<void
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+
+describe('streamBridgeRun', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('streams persisted BridgeEvent frames and closes on completion', async () => {
+    const events: BridgeEvent[] = [];
+    const onClose = vi.fn();
+    const fetchMock = mockFetchWithChunks([
+      'event: message.part\ndata: {"role":"agent","content":"hello"}\n\n',
+      'event: run.completed\ndata: {"run_id":"run-1"}\n\n',
+    ]);
+
+    const cancel = streamBridgeRun(persistedStreamOptions({
+      bridgeRunId: 'run with spaces/slash',
+      onEvent: (event) => events.push(event),
+      onClose,
+    }));
+
+    expect(typeof cancel).toBe('function');
+    await waitFor(() => onClose.mock.calls.length === 1);
+
+    expect(events).toEqual([
+      { type: 'message.part', data: { role: 'agent', content: 'hello' } },
+      { type: 'run.completed', data: { run_id: 'run-1' } },
+    ]);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('http://bridge.example/runs/run%20with%20spaces%2Fslash/stream', {
+      method: 'GET',
+      headers: {
+        Authorization: 'Bearer key-1',
+      },
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it('calls onError with 404 response body, then onClose', async () => {
+    const onEvent = vi.fn();
+    const onClose = vi.fn();
+    const onError = vi.fn();
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      text: async () => 'run not found',
+      body: null,
+    })));
+
+    streamBridgeRun(persistedStreamOptions({ onEvent, onClose, onError }));
+
+    await waitFor(() => onClose.mock.calls.length === 1);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(404, 'run not found');
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('suppresses callbacks after cancel', async () => {
+    let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controllerRef = controller;
+        },
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onEvent = vi.fn();
+    const onClose = vi.fn();
+    const onError = vi.fn();
+
+    const cancel = streamBridgeRun(persistedStreamOptions({ onEvent, onClose, onError }));
+
+    await waitFor(() => fetchMock.mock.calls.length === 1 && Boolean(controllerRef));
+    cancel();
+    controllerRef?.enqueue(encoder.encode('event: message.part\ndata: {"content":"ignored"}\n\n'));
+    controllerRef?.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+});
 
 describe('subscribeToBridgeRunStream', () => {
   afterEach(() => {
@@ -231,7 +331,7 @@ describe('subscribeToBridgeRunStream', () => {
     }));
 
     await waitFor(() => onClose.mock.calls.length === 1);
-    expect(events).toEqual([{ type: 'run.awaiting', data: { run_id: 'task-1' } }]);
+    expect(events).toEqual([{ type: 'run.awaiting', data: { run_id: 'task-1', tool: '' } }]);
   });
 
   it('calls onError with status and body when bridge returns non-ok, then fires onClose with no onEvent', async () => {
@@ -285,69 +385,5 @@ describe('subscribeToBridgeRunStream', () => {
     expect(readyOrder).toBeLessThan(onReady.mock.invocationCallOrder[0] + 1); // always true, sanity
     // Verify the run.created event was also emitted via onEvent
     expect(events[0]).toEqual({ type: 'run.created', data: { run_id: 'task-42' } });
-  });
-});
-
-describe('registerBridgePushNotification', () => {
-  it('posts push notification config to the bridge', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-
-    await registerBridgePushNotification({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      bot: 'bot with spaces/slash',
-      bridgeRunId: 'task-1',
-      callbackUrl: 'http://kanban.example/api/internal/push-callback/card-1/bob',
-      callbackToken: 'callback-token',
-      fetchImpl,
-    });
-
-    expect(fetchImpl).toHaveBeenCalledWith(
-      'http://bridge.example/agents/bot%20with%20spaces%2Fslash/tasks:pushNotificationConfig:set',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer key-1',
-        },
-        body: JSON.stringify({
-          taskId: 'task-1',
-          pushNotificationConfig: {
-            url: 'http://kanban.example/api/internal/push-callback/card-1/bob',
-            token: 'callback-token',
-          },
-        }),
-      },
-    );
-  });
-
-  it('rejects when bridge returns non-2xx', async () => {
-    const fetchImpl = vi.fn(async () => new Response('bad gateway', { status: 500 }));
-
-    await expect(registerBridgePushNotification({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      bot: 'bob',
-      bridgeRunId: 'task-1',
-      callbackUrl: 'http://kanban.example/callback',
-      callbackToken: 'callback-token',
-      fetchImpl,
-    })).rejects.toThrow('push registration failed: 500');
-  });
-
-  it('rejects when fetch throws', async () => {
-    const fetchImpl = vi.fn(async () => {
-      throw new Error('network down');
-    });
-
-    await expect(registerBridgePushNotification({
-      bridgeApiUrl: 'http://bridge.example',
-      bridgeApiKey: 'key-1',
-      bot: 'bob',
-      bridgeRunId: 'task-1',
-      callbackUrl: 'http://kanban.example/callback',
-      callbackToken: 'callback-token',
-      fetchImpl,
-    })).rejects.toThrow('network down');
   });
 });
