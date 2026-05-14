@@ -37,6 +37,7 @@ async function main(): Promise<void> {
   registerPreferencesRoutes(server, db);
 
   await server.listen({ host: '0.0.0.0', port: config.port });
+
   server.log.info(
     {
       pid: process.pid,
@@ -49,16 +50,35 @@ async function main(): Promise<void> {
   );
   console.log(`[kanban] pid=${process.pid} listening on port ${config.port}`);
 
-  const shutdown = async (): Promise<void> => {
-    server.log.info('shutting down');
+  let shuttingDown = false;
+  const shutdown = async (signal: 'SIGTERM' | 'SIGINT'): Promise<void> => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+
+    server.log.info(`Received ${signal}, shutting down gracefully`);
     sseManager.shutdown();
-    await server.close();
-    db.close();
+
+    try {
+      await server.close();
+    } catch (err) {
+      server.log.warn({ err }, 'Error closing HTTP server');
+    }
+
+    try {
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      db.close();
+      server.log.info('Database checkpointed and closed');
+    } catch (err) {
+      server.log.warn({ err }, 'Error closing database');
+    }
+
     process.exit(0);
   };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+  process.on('SIGINT', () => { void shutdown('SIGINT'); });
 }
 
 main().catch((err) => {
