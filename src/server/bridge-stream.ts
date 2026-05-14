@@ -32,6 +32,15 @@ export interface BridgeStreamOptions {
   onError?: (status: number, body: string) => void;
 }
 
+export interface StreamBridgeRunOptions {
+  bridgeApiUrl: string;
+  bridgeApiKey: string;
+  bridgeRunId: string;
+  onEvent: (event: BridgeEvent) => void;
+  onClose: () => void;
+  onError?: (status: number, body: string) => void;
+}
+
 const bridgeEventTypes = new Set<string>([
   'run.queued',
   'run.created',
@@ -135,7 +144,7 @@ function mapA2AEvent(eventType: string, data: Record<string, unknown>): BridgeEv
   return { type: eventType, data };
 }
 
-function parseFrame(frame: string): BridgeEvent | null {
+function parseFrameParts(frame: string): { eventType: string; data: Record<string, unknown> } | null {
   if (frame.trim() === '') return null;
 
   const lines = frame.split(/\r?\n/);
@@ -153,7 +162,105 @@ function parseFrame(frame: string): BridgeEvent | null {
 
   if (!eventType) return null;
 
-  return mapA2AEvent(eventType, parseData(dataLines));
+  return { eventType, data: parseData(dataLines) };
+}
+
+function parseFrame(frame: string): BridgeEvent | null {
+  const parts = parseFrameParts(frame);
+  if (!parts) return null;
+
+  return mapA2AEvent(parts.eventType, parts.data);
+}
+
+function parseBridgeEventFrame(frame: string): BridgeEvent | null {
+  const parts = parseFrameParts(frame);
+  if (!parts || !isBridgeEventType(parts.eventType)) return null;
+
+  return { type: parts.eventType, data: parts.data };
+}
+
+/** Subscribe to the bridge SSE stream for a persisted run. Returns a cancel function that terminates the stream. */
+export function streamBridgeRun(opts: StreamBridgeRunOptions): () => void {
+  const controller = new AbortController();
+  let closed = false;
+  let cancelled = false;
+
+  const closeOnce = () => {
+    if (closed || cancelled) return;
+    closed = true;
+    opts.onClose();
+  };
+
+  void (async () => {
+    try {
+      const url = `${opts.bridgeApiUrl}/runs/${encodeURIComponent(opts.bridgeRunId)}/stream`;
+      const headersTimeoutController = new AbortController();
+      const headersTimeoutId = setTimeout(() => headersTimeoutController.abort(), 60_000);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${opts.bridgeApiKey}`,
+          },
+          signal: AbortSignal.any([controller.signal, headersTimeoutController.signal]),
+        });
+      } finally {
+        clearTimeout(headersTimeoutId);
+      }
+
+      if (cancelled) return;
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => 'unknown error');
+        if (cancelled) return;
+        opts.onError?.(response.status, errorBody);
+        closeOnce();
+        return;
+      }
+
+      if (!response.body) {
+        closeOnce();
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (!cancelled) {
+        const { done, value } = await reader.read();
+        if (cancelled) return;
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          if (cancelled) return;
+          const event = parseBridgeEventFrame(frame);
+          if (!event) continue;
+
+          opts.onEvent(event);
+          if (event.type === 'run.completed' || event.type === 'run.failed') {
+            closeOnce();
+            return;
+          }
+        }
+      }
+
+      closeOnce();
+    } catch (err) {
+      if (cancelled) return;
+      opts.onError?.(0, err instanceof Error ? err.message : 'unknown error');
+      closeOnce();
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+    closed = true;
+    controller.abort();
+  };
 }
 
 /** Subscribe to the bridge SSE stream for a run. Returns a cancel function that terminates the stream. */
