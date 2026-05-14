@@ -321,6 +321,34 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
 
       if (config) {
         const bot = card.agent_bot;
+        const staleRuns = listRuns(db, id).filter(
+          (candidate) =>
+            (candidate.status === 'running' || candidate.status === 'awaiting') &&
+            candidate.bridge_run_id,
+        );
+        for (const staleRun of staleRuns) {
+          const bridgeRunId = staleRun.bridge_run_id;
+          if (!bridgeRunId) {
+            continue;
+          }
+          void Promise.resolve()
+            .then(async () => {
+              await fetch(`${config.bridgeApiUrl}/agents/${encodeURIComponent(bot)}/tasks::cancel`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${config.bridgeApiKey}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ id: bridgeRunId }),
+              });
+            })
+            .catch(() => {});
+          updateRun(db, staleRun.id, {
+            status: 'failed',
+            error: 'cancelled before new dispatch',
+            finished_at: new Date().toISOString(),
+          });
+        }
         // Fire-and-forget dispatch -- don't block the response
         subscribeToBridgeRunStream({
           bridgeApiUrl: config.bridgeApiUrl,
@@ -352,6 +380,9 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
               finished_at: new Date().toISOString(),
               error: `Bridge stream failed: ${status} ${errBody}`,
             });
+            if (status === 409) {
+              app.log.warn({ status, body: errBody, cardId: id, runId: run.id }, 'Bridge returned 409 - stale task was likely still active');
+            }
             app.log.error({ status, body: errBody, cardId: id, runId: run.id }, 'bridge stream failed');
           },
           onEvent: (event) => {
