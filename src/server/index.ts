@@ -26,9 +26,16 @@ async function main(): Promise<void> {
 
   await server.listen({ host: '0.0.0.0', port: config.port });
   server.log.info(
-    { port: config.port, logLevel: config.logLevel, dbPath: config.dbPath, bridgeApiUrl: config.bridgeApiUrl },
+    {
+      pid: process.pid,
+      port: config.port,
+      logLevel: config.logLevel,
+      dbPath: config.dbPath,
+      bridgeApiUrl: config.bridgeApiUrl,
+    },
     'kanban server started',
   );
+  console.log(`[kanban] pid=${process.pid} listening on port ${config.port}`);
 
   const shutdown = async (): Promise<void> => {
     server.log.info('shutting down');
