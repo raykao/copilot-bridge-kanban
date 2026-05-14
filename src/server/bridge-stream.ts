@@ -173,15 +173,22 @@ export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => voi
           contextId: opts.cardId,
         },
       };
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${opts.bridgeApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+      const headersTimeoutController = new AbortController();
+      const headersTimeoutId = setTimeout(() => headersTimeoutController.abort(), 60_000);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${opts.bridgeApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.any([controller.signal, headersTimeoutController.signal]),
+        });
+      } finally {
+        clearTimeout(headersTimeoutId);
+      }
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => 'unknown error');

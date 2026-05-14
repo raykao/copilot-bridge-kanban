@@ -48,5 +48,5 @@ export function CardPage() {
     );
   }
 
-  return <CardDetailPage card={cardDetail.card} comments={cardDetail.comments} agents={agents} />;
+  return <CardDetailPage card={cardDetail.card} comments={cardDetail.comments} runs={cardDetail.runs ?? []} agents={agents} />;
 }

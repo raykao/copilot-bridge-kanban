@@ -19,6 +19,7 @@ export interface AwaitingPermission {
 
 export interface StreamingState {
   isStreaming: boolean;
+  isThinking: boolean;
   content: string;
   toolCalls: ToolCall[];
   connectionStatus: ConnectionStatus;
@@ -28,6 +29,7 @@ export interface StreamingState {
 
 const initialStreamingState: StreamingState = {
   isStreaming: false,
+  isThinking: false,
   content: '',
   toolCalls: [],
   connectionStatus: 'idle',
@@ -201,6 +203,7 @@ export function useCardEvents({
           setStreamingState((current) => ({
             ...current,
             isStreaming: true,
+            isThinking: false,
             content: `${current.content}${chunk}`,
           }));
           return;
@@ -211,6 +214,7 @@ export function useCardEvents({
             setStreamingState((current) => ({
               ...current,
               isStreaming: true,
+              isThinking: false,
               content: `${current.content}${chunk}`,
             }));
           }
@@ -272,6 +276,7 @@ export function useCardEvents({
           setStreamingState((current) => ({
             ...current,
             isStreaming: false,
+            isThinking: false,
             awaitingPermission: {
               runId: getString(data.run_id) ?? '',
               tool: getString(data.tool) ?? '',
@@ -284,6 +289,7 @@ export function useCardEvents({
         case 'run.in_progress': {
           setStreamingState((current) => ({
             ...current,
+            isThinking: !current.isStreaming,
             awaitingPermission: null,
           }));
           return;
