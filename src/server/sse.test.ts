@@ -164,6 +164,108 @@ describe('SseManager', () => {
     vi.useRealTimers();
   });
 
+  it('subscribeGlobal receives enveloped frames for any card', () => {
+    const chunks: string[] = [];
+    const raw = {
+      writableEnded: false,
+      write: (data: string) => { chunks.push(data); return true; },
+      on: vi.fn(),
+      end: vi.fn(),
+    } as any;
+
+    manager.subscribeGlobal(raw);
+    manager.emit('card-1', 'comment.created', { id: 'c1', content: 'hello' });
+
+    expect(chunks).toEqual([
+      `event: comment.created\ndata: ${JSON.stringify({ card_id: 'card-1', data: { id: 'c1', content: 'hello' } })}\n\n`,
+    ]);
+  });
+
+  it('keeps per-card frames unenveloped when global subscribers exist', () => {
+    const cardChunks: string[] = [];
+    const globalChunks: string[] = [];
+    const cardRaw = {
+      writableEnded: false,
+      write: (data: string) => { cardChunks.push(data); return true; },
+      on: vi.fn(),
+      end: vi.fn(),
+    } as any;
+    const globalRaw = {
+      writableEnded: false,
+      write: (data: string) => { globalChunks.push(data); return true; },
+      on: vi.fn(),
+      end: vi.fn(),
+    } as any;
+
+    manager.subscribe('card-1', cardRaw);
+    manager.subscribeGlobal(globalRaw);
+    manager.emit('card-1', 'card.updated', { status: 'done' });
+
+    expect(cardChunks).toEqual([`event: card.updated\ndata: ${JSON.stringify({ status: 'done' })}\n\n`]);
+    expect(globalChunks).toEqual([
+      `event: card.updated\ndata: ${JSON.stringify({ card_id: 'card-1', data: { status: 'done' } })}\n\n`,
+    ]);
+  });
+
+  it('unsubscribeGlobal removes client from subsequent emits', () => {
+    const chunks: string[] = [];
+    const raw = {
+      writableEnded: false,
+      write: (data: string) => { chunks.push(data); return true; },
+      on: vi.fn(),
+      end: vi.fn(),
+    } as any;
+
+    manager.subscribeGlobal(raw);
+    manager.emit('card-1', 'first', { ok: true });
+    manager.unsubscribeGlobal(raw);
+    manager.emit('card-1', 'second', { ok: true });
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toContain('event: first');
+  });
+
+  it('auto-unsubscribes global client on connection close', () => {
+    const chunks: string[] = [];
+    let closeHandler: (() => void) | undefined;
+    const raw = {
+      writableEnded: false,
+      write: (data: string) => { chunks.push(data); return true; },
+      on: (event: string, cb: () => void) => {
+        if (event === 'close') closeHandler = cb;
+      },
+      end: vi.fn(),
+    } as any;
+
+    manager.subscribeGlobal(raw);
+    manager.emit('card-1', 'first', { ok: true });
+    closeHandler!();
+    manager.emit('card-1', 'second', { ok: true });
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toContain('event: first');
+  });
+
+  it('heartbeat writes comment to global connections', () => {
+    vi.useFakeTimers();
+    const chunks: string[] = [];
+    const raw = {
+      writableEnded: false,
+      write: (data: string) => { chunks.push(data); return true; },
+      on: vi.fn(),
+      end: vi.fn(),
+    } as any;
+
+    manager.subscribeGlobal(raw);
+    manager.startHeartbeat(1000);
+
+    vi.advanceTimersByTime(1000);
+    expect(chunks).toContain(':heartbeat\n\n');
+
+    manager.shutdown();
+    vi.useRealTimers();
+  });
+
   it('does not write to ended responses', () => {
     const raw = {
       writableEnded: true,

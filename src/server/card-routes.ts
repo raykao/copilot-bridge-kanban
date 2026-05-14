@@ -179,6 +179,23 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
   // SSE events
   // -----------------------------------------------------------------------
 
+  app.get('/api/events', async (_request, reply) => {
+    if (!sseManager) {
+      return reply.status(503).send({ error: 'SSE not available' });
+    }
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    sseManager.subscribeGlobal(reply.raw);
+    reply.raw.write(`event: connected\ndata: ${JSON.stringify({ scope: 'global' })}\n\n`);
+
+    reply.hijack();
+  });
+
   app.get('/api/cards/:id/events', async (request, reply) => {
     const { id } = request.params as { id: string };
     if (!getCard(db, id)) {
