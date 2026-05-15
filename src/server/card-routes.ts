@@ -144,10 +144,14 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
             app.log.error({ status, body: errBody, cardId: card.id, runId: run.id }, 'bridge stream failed');
           },
           onEvent: (event) => {
-            sseManager?.emit(card.id, event.type, event.data);
             if (event.type === 'run.awaiting') {
               updateRun(db, run.id, { status: 'awaiting' });
-            } else if (event.type === 'run.completed') {
+              sseManager?.emit(card.id, event.type, { ...event.data, run_id: run.id });
+            } else {
+              sseManager?.emit(card.id, event.type, event.data);
+            }
+
+            if (event.type === 'run.completed') {
               updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
             } else if (event.type === 'run.failed') {
               updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
@@ -386,10 +390,14 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
             app.log.error({ status, body: errBody, cardId: id, runId: run.id }, 'bridge stream failed');
           },
           onEvent: (event) => {
-            sseManager?.emit(id, event.type, event.data);
             if (event.type === 'run.awaiting') {
               updateRun(db, run.id, { status: 'awaiting' });
-            } else if (event.type === 'run.completed') {
+              sseManager?.emit(id, event.type, { ...event.data, run_id: run.id });
+            } else {
+              sseManager?.emit(id, event.type, event.data);
+            }
+
+            if (event.type === 'run.completed') {
               updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
             } else if (event.type === 'run.failed') {
               updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
