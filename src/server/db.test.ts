@@ -20,6 +20,7 @@ describe('database schema', () => {
 
     expect(tables.map((t) => t.name)).toEqual([
       'agent_tokens',
+      'agents',
       'card_comments',
       'card_labels',
       'cards',

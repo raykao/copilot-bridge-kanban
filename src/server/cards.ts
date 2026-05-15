@@ -9,6 +9,7 @@ export interface Card {
   id: string;
   type: 'work' | 'chat';
   agent_bot: string | null;
+  agent_id: string | null;
   title: string;
   description: string | null;
   status: string;
@@ -180,7 +181,7 @@ export function listCards(db: Database.Database, filter: CardFilter = {}): Card[
 }
 
 export function updateCard(db: Database.Database, id: string, patch: Partial<Card>): Card {
-  const allowed = ['type', 'agent_bot', 'title', 'description', 'status', 'workspace_subdir', 'archived_at'] as const;
+  const allowed = ['type', 'agent_bot', 'agent_id', 'title', 'description', 'status', 'workspace_subdir', 'archived_at'] as const;
   const sets: string[] = ['updated_at = ?'];
   const params: unknown[] = [now()];
 
