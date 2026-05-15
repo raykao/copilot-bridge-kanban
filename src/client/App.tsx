@@ -20,6 +20,7 @@ import { BoardPage } from './pages/BoardPage';
 import { CardListPage } from './pages/CardListPage';
 import { CardPage } from './pages/CardPage';
 import { ChatPage } from './pages/ChatPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 function showApiErrorToast(error: unknown) {
   const message = getToastErrorMessage(error);
@@ -64,6 +65,7 @@ export function App() {
                   <Route element={<CardPage />} path="/cards/:id" />
                   <Route element={<CardListPage />} path="/cards" />
                   <Route element={<ChatPage />} path="/chat/:agent" />
+                  <Route element={<SettingsPage />} path="/settings" />
                 </Route>
               </Route>
               <Route element={<Navigate replace to="/board" />} path="*" />

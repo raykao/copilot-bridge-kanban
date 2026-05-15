@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bot, Inbox, LayoutDashboard, List, LogOut, MessageSquare, type LucideIcon } from 'lucide-react';
+import { Bot, Inbox, LayoutDashboard, List, LogOut, MessageSquare, Settings, type LucideIcon } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { api } from '@/api/client';
@@ -22,6 +22,7 @@ const primaryNav = [
   { label: 'Board', href: '/board', icon: LayoutDashboard },
   { label: 'Backlog', href: '/backlog', icon: Inbox },
   { label: 'All Cards', href: '/cards', icon: List },
+  { label: 'Settings', href: '/settings', icon: Settings },
 ] as const;
 
 interface SidebarProps {
