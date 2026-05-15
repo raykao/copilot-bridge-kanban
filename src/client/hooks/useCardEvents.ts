@@ -272,6 +272,7 @@ export function useCardEvents({
             return;
           }
 
+          void invalidateCardQueries();
           const data = event.data;
           setStreamingState((current) => ({
             ...current,
