@@ -131,7 +131,8 @@ describe('push callback routes', () => {
       expect(run.status).toBe(c.expected);
       expect(run.finished_at === null).toBe(!c.terminal);
       if (c.error) expect(run.error).toBe(c.error);
-      expect(emit).toHaveBeenCalledWith(cardId, c.event, {});
+      const expectedPayload = c.state === 'input-required' ? { run_id: runId } : {};
+      expect(emit).toHaveBeenCalledWith(cardId, c.event, expectedPayload);
     }
   });
 

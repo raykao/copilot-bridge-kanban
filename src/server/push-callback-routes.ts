@@ -102,7 +102,9 @@ function handleStatusUpdate(db: Database.Database, sseManager: SseManager, cardI
   }
 
   updateRun(db, run.id, patch);
-  sseManager.emit(cardId, `run.${target.status === 'cancelled' ? 'failed' : target.status}`, {});
+  const eventName = `run.${target.status === 'cancelled' ? 'failed' : target.status}`;
+  const eventData: Record<string, unknown> = target.status === 'awaiting' ? { run_id: run.id } : {};
+  sseManager.emit(cardId, eventName, eventData);
 }
 
 function handleArtifactUpdate(
