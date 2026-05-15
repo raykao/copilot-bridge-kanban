@@ -3,7 +3,6 @@ import type Database from 'better-sqlite3';
 import type { AppConfig } from './config.js';
 import type { CardSessionManager, DispatchCallbacks } from './card-session-manager.js';
 import { AcpSessionManager } from './acp-session-manager.js';
-import { getAgent } from './agents-db.js';
 import {
   createCard,
   getCard,
