@@ -290,6 +290,11 @@ export function CardDetailPage({
                 onRetry={streamingState.retry}
                 status={streamingState.connectionStatus}
               />
+              <CommentThread cardId={card.id} comments={comments} streamingState={streamingState} />
+            </section>
+
+            <section className="space-y-3">
+              <StreamingMessage streamingState={streamingState} />
               <RunStatusBar
                 cardId={card.id}
                 latestRun={latestRun}
@@ -299,7 +304,6 @@ export function CardDetailPage({
                   setDrawerOpen(true);
                 }}
               />
-              <CommentThread cardId={card.id} comments={comments} streamingState={streamingState} />
             </section>
           </CardContent>
         </SurfaceCard>
