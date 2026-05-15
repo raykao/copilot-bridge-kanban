@@ -9,6 +9,8 @@ import { registerPreferencesRoutes } from './preferences.js';
 import { registerPushCallbackRoutes } from './push-callback-routes.js';
 import { createServer } from './server.js';
 import { CardSessionManager } from './card-session-manager.js';
+import { listAgents } from './agents-db.js';
+import { AcpSessionManager } from './acp-session-manager.js';
 import { listActiveRunsGlobal } from './cards.js';
 import { SseManager } from './sse.js';
 
@@ -20,9 +22,17 @@ async function main(): Promise<void> {
   const sseManager = new SseManager();
   sseManager.startHeartbeat();
 
-  const cardSessionManager = config
-    ? new CardSessionManager(config, buildSessionCallbacks(db, sseManager))
-    : undefined;
+  const callbacks = buildSessionCallbacks(db, sseManager);
+  const cardSessionManager = new CardSessionManager(config, callbacks);
+
+  const acpManagers = new Map<string, AcpSessionManager>();
+  for (const agent of listAgents(db)) {
+    acpManagers.set(agent.id, new AcpSessionManager(
+      { url: agent.url, auto_approve: agent.auto_approve },
+      callbacks,
+    ));
+  }
+
   if (cardSessionManager) {
     const activeRuns = listActiveRunsGlobal(db).filter(
       (run): run is typeof run & { bridge_run_id: string } => run.bridge_run_id !== null,
@@ -33,7 +43,7 @@ async function main(): Promise<void> {
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
   registerAuthRoutes(server, db);
-  registerCardRoutes(server, db, config, sseManager, cardSessionManager);
+  registerCardRoutes(server, db, config, sseManager, cardSessionManager, acpManagers);
   registerPushCallbackRoutes(server, db, sseManager);
   registerAgentRoutes(server, config);
   registerAdminRoutes(server, db);

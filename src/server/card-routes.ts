@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { AppConfig } from './config.js';
 import type { CardSessionManager, DispatchCallbacks } from './card-session-manager.js';
+import { AcpSessionManager } from './acp-session-manager.js';
+import { getAgent } from './agents-db.js';
 import {
   createCard,
   getCard,
@@ -76,7 +78,19 @@ export function registerCardRoutes(
   config?: AppConfig,
   sseManager?: SseManager,
   cardSessionManager?: CardSessionManager,
+  acpManagers?: Map<string, AcpSessionManager>,
 ): void {
+  function resolveAndDispatch(cardId: string, cardAgentId: string | null, bot: string, prompt: string, runId: string): void {
+    if (cardAgentId) {
+      const mgr = acpManagers?.get(cardAgentId);
+      if (mgr) {
+        mgr.dispatch(cardId, bot, prompt, runId);
+        return;
+      }
+    }
+    cardSessionManager?.dispatch(cardId, bot, prompt, runId);
+  }
+
   // -----------------------------------------------------------------------
   // Cards
   // -----------------------------------------------------------------------
@@ -141,7 +155,7 @@ export function registerCardRoutes(
         const bot = card.agent_bot;
         const prompt = card.description;
 
-        cardSessionManager?.dispatch(card.id, bot, prompt, run.id);
+        resolveAndDispatch(card.id, card.agent_id, bot, prompt, run.id);
       }
     }
 
@@ -296,7 +310,7 @@ export function registerCardRoutes(
 
       if (config) {
         const bot = card.agent_bot;
-        cardSessionManager?.dispatch(id, bot, body.content as string, run.id);
+        resolveAndDispatch(id, card.agent_id, bot, body.content as string, run.id);
       }
     }
 
