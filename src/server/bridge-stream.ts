@@ -113,7 +113,7 @@ function mapA2AEvent(eventType: string, data: Record<string, unknown>): BridgeEv
         : undefined;
       const statusText = textFromParts(parts);
       const tool = statusText.replace(/^Permission required:\s*/i, '').trim();
-      return { type: 'run.awaiting', data: { run_id: data.taskId, tool } };
+      return { type: 'run.awaiting', data: tool ? { run_id: data.taskId, tool } : { run_id: data.taskId } };
     }
     if (state === 'completed') {
       return { type: 'run.completed', data: { run_id: data.taskId } };

@@ -34,9 +34,10 @@ export function StreamingMessage({ streamingState }: StreamingMessageProps) {
       return;
     }
 
+    // Clear rendered content immediately to prevent duplication with persisted DB comment
+    setRenderedState(streamingState);
     const timeout = window.setTimeout(() => {
       setVisible(false);
-      setRenderedState(streamingState);
     }, 300);
 
     return () => {
