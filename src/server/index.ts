@@ -3,6 +3,7 @@ import { createDatabase, initializeSchema } from './db.js';
 import { registerAuthRoutes, registerSessionMiddleware } from './auth.js';
 import { registerAgentRoutes } from './agents.js';
 import { registerAdminRoutes } from './admin-routes.js';
+import { registerAgentAdminRoutes } from './agent-admin-routes.js';
 import { buildSessionCallbacks, registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerPushCallbackRoutes } from './push-callback-routes.js';
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
   registerPushCallbackRoutes(server, db, sseManager);
   registerAgentRoutes(server, config);
   registerAdminRoutes(server, db);
+  registerAgentAdminRoutes(server, db);
   registerPreferencesRoutes(server, db);
 
   await server.listen({ host: '0.0.0.0', port: config.port });
