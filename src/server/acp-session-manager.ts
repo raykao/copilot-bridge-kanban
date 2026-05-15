@@ -96,6 +96,14 @@ export class AcpSessionManager {
       pending.clear();
     };
 
+    const onError = (error: string): void => {
+      if (completed) return;
+      completed = true;
+      clearTimeout(timeoutHandle);
+      ws.close();
+      this.callbacks.onComplete(cardId, kanbanRunId, 'failed', error);
+    };
+
     const call = (method: string, params: unknown): Promise<unknown> => {
       const id = nextId();
       return new Promise<unknown>((resolve, reject) => {
@@ -127,7 +135,7 @@ export class AcpSessionManager {
 
         // Server-initiated request (e.g. session/request_permission)
         if ('method' in msg) {
-          void this._handleServerRequest(ws, msg as unknown as RpcRequest, cardId, kanbanRunId, nextId)
+          void this._handleServerRequest(ws, onError, msg as unknown as RpcRequest, cardId, kanbanRunId, nextId)
             .catch(() => { /* ignore */ });
           return;
         }
@@ -150,13 +158,7 @@ export class AcpSessionManager {
             }
             this.callbacks.onComplete(cardId, kanbanRunId, 'completed');
           },
-          (error) => {
-            if (completed) return;
-            completed = true;
-            clearTimeout(timeoutHandle);
-            ws.close();
-            this.callbacks.onComplete(cardId, kanbanRunId, 'failed', error);
-          },
+          onError,
         );
       }
     });
@@ -254,9 +256,10 @@ export class AcpSessionManager {
 
   private async _handleServerRequest(
     ws: WebSocket,
+    onError: (msg: string) => void,
     req: RpcRequest,
     cardId: string,
-    kanbanRunId: string,
+    _kanbanRunId: string,
     nextId: () => number,
   ): Promise<void> {
     if (req.method !== 'session/request_permission') return;
@@ -279,7 +282,6 @@ export class AcpSessionManager {
     // Phase 1: auto_approve=false denies and fails the run.
     // Phase 3 will add a proper resume path.
     this._send(ws, { jsonrpc: '2.0', id: req.id, result: { decision: 'deny' } });
-    ws.close();
-    this.callbacks.onComplete(cardId, kanbanRunId, 'failed', 'permission required - use resume to approve');
+    onError('permission required - use resume to approve');
   }
 }

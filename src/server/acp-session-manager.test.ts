@@ -124,6 +124,7 @@ describe('AcpSessionManager - auto_approve=false', () => {
 
     const permEvents = calls.onEvent.filter((a) => a[1] === 'run.permission_request');
     expect(permEvents).toHaveLength(1);
+    expect(calls.onComplete.length).toBe(1);
     expect(calls.onComplete[0][2]).toBe('failed');
   });
 });
