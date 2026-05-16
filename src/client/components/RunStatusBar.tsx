@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 
 import { api } from '@/api/client';
@@ -40,13 +40,28 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
 
-  // Reset resuming state whenever the run changes or status transitions away from awaiting.
-  // This keeps "Processing approval..." visible until the React Query refetch confirms the
-  // status change, preventing the approval buttons from briefly re-appearing after submission.
+  // Reset isResuming when status transitions away from 'awaiting' (covers single-tool and
+  // run-complete cases). Also reset when run id changes.
   useEffect(() => {
-    setIsResuming(false);
-    setResumeError(null);
+    if (latestRun?.status !== 'awaiting') {
+      setIsResuming(false);
+      setResumeError(null);
+    }
   }, [latestRun?.id, latestRun?.status]);
+
+  // Reset isResuming when a NEW permission request arrives while status stays 'awaiting'
+  // (agent immediately chains a second tool call). Uses a ref to detect the transition
+  // from null -> non-null or object identity change (each SSE creates a new object).
+  const prevAwaitingRef = useRef(streaming.awaitingPermission);
+  useEffect(() => {
+    const prev = prevAwaitingRef.current;
+    const curr = streaming.awaitingPermission;
+    if (curr !== null && curr !== prev) {
+      setIsResuming(false);
+      setResumeError(null);
+    }
+    prevAwaitingRef.current = curr;
+  }, [streaming.awaitingPermission]);
 
   useEffect(() => {
     if (latestRun?.status !== 'completed') {
