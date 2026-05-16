@@ -6,7 +6,7 @@ import type { DispatchCallbacks } from './card-session-manager.js';
 
 function makeCallbacks(): { cbs: DispatchCallbacks; calls: Record<string, unknown[][]> } {
   const calls: Record<string, unknown[][]> = {
-    onRunCreated: [], onEvent: [], onComplete: [], onAgentMessage: [], onPermissionRequest: [],
+    onRunCreated: [], onEvent: [], onComplete: [], onAgentMessage: [], onPermissionRequest: [], onInterrupted: [],
   };
   const cbs: DispatchCallbacks = {
     onRunCreated: (...args) => { calls.onRunCreated.push(args); },
@@ -14,6 +14,7 @@ function makeCallbacks(): { cbs: DispatchCallbacks; calls: Record<string, unknow
     onComplete: (...args) => { calls.onComplete.push(args); },
     onAgentMessage: (...args) => { calls.onAgentMessage.push(args); },
     onPermissionRequest: (...args) => { calls.onPermissionRequest.push(args); },
+    onInterrupted: (...args) => { calls.onInterrupted.push(args); },
   };
   return { cbs, calls };
 }
@@ -249,5 +250,109 @@ describe('AcpSessionManager - WS error', () => {
 
     await waitFor(() => calls.onComplete.length > 0);
     expect(calls.onComplete[0][2]).toBe('failed');
+  });
+});
+
+
+describe('AcpSessionManager - interrupted on WS close', () => {
+  it('marks run as interrupted (not failed) when server advertises resume capability and WS closes mid-run', async () => {
+    wss.once('connection', (client: WsType) => {
+      client.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString()) as { id: number; method: string };
+        if (msg.method === 'initialize') client.send(rpcResult(msg.id, { serverCapabilities: { session: { resume: true } } }));
+        if (msg.method === 'session/new') client.send(rpcResult(msg.id, { sessionId: 'ses-int-1' }));
+        if (msg.method === 'session/prompt') client.close();
+      });
+    });
+
+    const { cbs, calls } = makeCallbacks();
+    const mgr = new AcpSessionManager({ url: `ws://localhost:${port}`, auto_approve: false }, cbs);
+    mgr.dispatch('card-int', 'bob', 'do something', 'run-int');
+    await waitFor(() => calls.onInterrupted.length > 0);
+
+    expect(calls.onInterrupted).toHaveLength(1);
+    expect(calls.onInterrupted[0]).toEqual(['card-int', 'run-int']);
+    expect(calls.onComplete).toHaveLength(0);
+  });
+
+  it('does not fail completion when WS closes while session/new is in flight after resume is advertised', async () => {
+    wss.once('connection', (client: WsType) => {
+      client.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString()) as { id: number; method: string };
+        if (msg.method === 'initialize') client.send(rpcResult(msg.id, { serverCapabilities: { session: { resume: true } } }));
+        if (msg.method === 'session/new') client.close();
+      });
+    });
+
+    const { cbs, calls } = makeCallbacks();
+    const mgr = new AcpSessionManager({ url: `ws://localhost:${port}`, auto_approve: false }, cbs);
+    mgr.dispatch('card-int-new', 'bob', 'do something', 'run-int-new');
+    await waitFor(() => calls.onInterrupted.length > 0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(calls.onInterrupted).toHaveLength(1);
+    expect(calls.onInterrupted[0]).toEqual(['card-int-new', 'run-int-new']);
+    expect(calls.onComplete).toHaveLength(0);
+  });
+});
+
+describe('AcpSessionManager - resumeSession', () => {
+  it('calls session/resume handshake and completes on session/update type=completed', async () => {
+    let connectionCount = 0;
+    wss.on('connection', (client: WsType) => {
+      connectionCount += 1;
+      const currentConnection = connectionCount;
+      client.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString()) as { id: number; method: string };
+        if (currentConnection === 1) {
+          if (msg.method === 'initialize') client.send(rpcResult(msg.id, { serverCapabilities: { session: { resume: true } } }));
+          if (msg.method === 'session/new') {
+            client.send(rpcResult(msg.id, { sessionId: 'ses-resume-1' }));
+            setTimeout(() => client.close(), 0);
+          }
+        } else {
+          if (msg.method === 'initialize') client.send(rpcResult(msg.id, { serverCapabilities: { session: { resume: true } } }));
+          if (msg.method === 'session/resume') {
+            client.send(rpcResult(msg.id, { ok: true }));
+            client.send(notify('session/update', { sessionId: 'ses-resume-1', type: 'completed', content: 'resumed done' }));
+          }
+        }
+      });
+    });
+
+    const { cbs, calls } = makeCallbacks();
+    const baseMgr = new AcpSessionManager({ url: `ws://localhost:${port}`, auto_approve: false }, cbs);
+    const runMgr = baseMgr.fork(cbs);
+    runMgr.dispatch('card-res', 'bob', 'initial prompt', 'run-res');
+
+    await waitFor(() => calls.onInterrupted.length > 0);
+    expect(calls.onRunCreated[0]).toEqual(['run-res', 'ses-resume-1']);
+
+    const resumeMgr = baseMgr.fork(cbs);
+    resumeMgr.resumeSession('card-res', 'bob', 'run-res', 'ses-resume-1');
+
+    await waitFor(() => calls.onComplete.length > 0);
+    expect(calls.onComplete[0]).toEqual(['card-res', 'run-res', 'completed']);
+    expect(calls.onAgentMessage[0]).toEqual(['card-res', 'run-res', 'bob', 'resumed done']);
+  });
+
+  it('does not fail completion when WS closes while session/resume is in flight after resume is advertised', async () => {
+    wss.once('connection', (client: WsType) => {
+      client.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString()) as { id: number; method: string };
+        if (msg.method === 'initialize') client.send(rpcResult(msg.id, { serverCapabilities: { session: { resume: true } } }));
+        if (msg.method === 'session/resume') client.close();
+      });
+    });
+
+    const { cbs, calls } = makeCallbacks();
+    const mgr = new AcpSessionManager({ url: `ws://localhost:${port}`, auto_approve: false }, cbs);
+    mgr.resumeSession('card-res-close', 'bob', 'run-res-close', 'ses-resume-close');
+    await waitFor(() => calls.onInterrupted.length > 0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(calls.onInterrupted).toHaveLength(1);
+    expect(calls.onInterrupted[0]).toEqual(['card-res-close', 'run-res-close']);
+    expect(calls.onComplete).toHaveLength(0);
   });
 });

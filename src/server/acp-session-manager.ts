@@ -38,6 +38,14 @@ interface RpcNotification {
 
 type InboundMessage = RpcResult | RpcError | RpcNotification;
 
+interface InitializeResult {
+  serverCapabilities?: {
+    session?: {
+      resume?: boolean;
+    };
+  };
+}
+
 function isRpcResult(m: InboundMessage): m is RpcResult {
   return 'result' in m && !('error' in m) && !('method' in m);
 }
@@ -89,6 +97,13 @@ export class AcpSessionManager {
     });
   }
 
+  resumeSession(cardId: string, bot: string, runId: string, sessionId: string): void {
+    void this._resumeRun(cardId, bot, runId, sessionId).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this.callbacks.onComplete(cardId, runId, 'failed', message);
+    });
+  }
+
   private async _run(cardId: string, bot: string, prompt: string, kanbanRunId: string): Promise<void> {
     const ws = this._openWebSocket();
 
@@ -100,6 +115,7 @@ export class AcpSessionManager {
     let contentBuffer = '';
     let sessionId: string | null = null;
     let completed = false;
+    let serverAdvertisesResume = false;
 
     const timeoutHandle = setTimeout(() => {
       if (completed) return;
@@ -206,7 +222,11 @@ export class AcpSessionManager {
       if (!completed) {
         completed = true;
         this.cancelActiveRun = null;
-        this.callbacks.onComplete(cardId, kanbanRunId, 'failed', 'ACP WebSocket closed unexpectedly');
+        if (serverAdvertisesResume) {
+          this.callbacks.onInterrupted(cardId, kanbanRunId);
+        } else {
+          this.callbacks.onComplete(cardId, kanbanRunId, 'failed', 'ACP WebSocket closed unexpectedly');
+        }
       }
     });
 
@@ -220,18 +240,183 @@ export class AcpSessionManager {
       }
     });
 
-    await wsReady;
+    try {
+      await wsReady;
 
-    // 1. initialize
-    await call('initialize', { clientCapabilities: {} });
+      // 1. initialize
+      const initResult = await call('initialize', { clientCapabilities: {} }) as InitializeResult;
+      serverAdvertisesResume = initResult?.serverCapabilities?.session?.resume === true;
 
-    // 2. session/new
-    const newResult = await call('session/new', {}) as { sessionId: string };
-    sessionId = newResult.sessionId;
-    this.callbacks.onRunCreated(kanbanRunId, sessionId);
+      // 2. session/new
+      const newResult = await call('session/new', {}) as { sessionId: string };
+      sessionId = newResult.sessionId;
+      this.callbacks.onRunCreated(kanbanRunId, sessionId);
 
-    // 3. session/prompt - responses come as notifications
-    this._send(ws, { jsonrpc: '2.0', id: nextId(), method: 'session/prompt', params: { sessionId, prompt } });
+      // 3. session/prompt - responses come as notifications
+      this._send(ws, { jsonrpc: '2.0', id: nextId(), method: 'session/prompt', params: { sessionId, prompt } });
+    } catch (err) {
+      if (completed) return;
+      completed = true;
+      this.cancelActiveRun = null;
+      clearTimeout(timeoutHandle);
+      ws.close();
+      throw err;
+    }
+  }
+
+
+
+  private async _resumeRun(cardId: string, bot: string, runId: string, sessionId: string): Promise<void> {
+    const ws = this._openWebSocket();
+
+    let rpcIdCounter = 0;
+    const nextId = (): number => ++rpcIdCounter;
+
+    const pending = new Map<number, { resolve: (result: unknown) => void; reject: (err: Error) => void }>();
+
+    let contentBuffer = '';
+    let completed = false;
+    let serverAdvertisesResume = false;
+
+    const timeoutHandle = setTimeout(() => {
+      if (completed) return;
+      completed = true;
+      this.cancelActiveRun = null;
+      ws.close();
+      this.callbacks.onComplete(cardId, runId, 'failed', 'ACP session timed out');
+    }, this.timeoutMs);
+
+    this.cancelActiveRun = (): void => {
+      if (completed) return;
+      completed = true;
+      clearTimeout(timeoutHandle);
+      ws.close();
+    };
+
+    const cleanup = (): void => {
+      clearTimeout(timeoutHandle);
+      this.cancelActiveRun = null;
+      pending.forEach(({ reject }) => reject(new Error('WebSocket closed')));
+      pending.clear();
+    };
+
+    const onError = (error: string): void => {
+      if (completed) return;
+      completed = true;
+      this.cancelActiveRun = null;
+      clearTimeout(timeoutHandle);
+      ws.close();
+      this.callbacks.onComplete(cardId, runId, 'failed', error);
+    };
+
+    const call = (method: string, params: unknown): Promise<unknown> => {
+      const id = nextId();
+      return new Promise<unknown>((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        this._send(ws, { jsonrpc: '2.0', id, method, params });
+      });
+    };
+
+    ws.on('message', (raw: Buffer | string) => {
+      let msg: InboundMessage;
+      try {
+        msg = JSON.parse(raw.toString()) as InboundMessage;
+      } catch {
+        return;
+      }
+
+      if ('id' in msg && msg.id != null) {
+        const msgWithId = msg as { id: number; result?: unknown; error?: unknown; method?: string };
+        const handler = pending.get(msgWithId.id);
+        if (handler) {
+          pending.delete(msgWithId.id);
+          if (isRpcError(msg)) {
+            handler.reject(new Error(msg.error.message));
+          } else if (isRpcResult(msg)) {
+            handler.resolve(msg.result);
+          }
+          return;
+        }
+
+        // Server-initiated request (e.g. session/request_permission)
+        if ('method' in msg) {
+          if (completed) return;
+          void this._handleServerRequest(ws, onError, msg as unknown as RpcRequest, cardId, runId, nextId)
+            .catch(() => { /* ignore */ });
+          return;
+        }
+      }
+
+      if (isRpcNotification(msg)) {
+        this._handleNotification(
+          msg,
+          cardId,
+          runId,
+          bot,
+          (chunk) => { contentBuffer += chunk; },
+          () => {
+            if (completed) return;
+            completed = true;
+            this.cancelActiveRun = null;
+            clearTimeout(timeoutHandle);
+            ws.close();
+            if (contentBuffer.trim()) {
+              this.callbacks.onAgentMessage(cardId, runId, bot, contentBuffer.trim());
+            }
+            this.callbacks.onComplete(cardId, runId, 'completed');
+          },
+          onError,
+        );
+      }
+    });
+
+    const wsReady = new Promise<void>((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', (err) => reject(err instanceof Error ? err : new Error(String(err))));
+    });
+
+    ws.on('close', () => {
+      cleanup();
+      if (!completed) {
+        completed = true;
+        this.cancelActiveRun = null;
+        if (serverAdvertisesResume) {
+          this.callbacks.onInterrupted(cardId, runId);
+        } else {
+          this.callbacks.onComplete(cardId, runId, 'failed', 'ACP WebSocket closed unexpectedly');
+        }
+      }
+    });
+
+    ws.on('error', (err) => {
+      if (!completed) {
+        completed = true;
+        this.cancelActiveRun = null;
+        clearTimeout(timeoutHandle);
+        ws.close();
+        this.callbacks.onComplete(cardId, runId, 'failed', err.message);
+      }
+    });
+
+    try {
+      await wsReady;
+
+      // 1. initialize
+      const initResult = await call('initialize', { clientCapabilities: {} }) as InitializeResult;
+      serverAdvertisesResume = initResult?.serverCapabilities?.session?.resume === true;
+
+      // 2. session/resume
+      await call('session/resume', { sessionId });
+
+      // 3. No session/prompt - agent resumes autonomously
+    } catch (err) {
+      if (completed) return;
+      completed = true;
+      this.cancelActiveRun = null;
+      clearTimeout(timeoutHandle);
+      ws.close();
+      throw err;
+    }
   }
 
   private _openWebSocket(): WebSocket {

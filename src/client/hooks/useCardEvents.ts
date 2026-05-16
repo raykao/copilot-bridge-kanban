@@ -308,6 +308,7 @@ export function useCardEvents({
         case 'run.completed':
         case 'run.failed':
         case 'run.cancelled':
+        case 'run.interrupted':
         case 'card.status': {
           void invalidateCardQueries();
           setStreamingState((current) => ({

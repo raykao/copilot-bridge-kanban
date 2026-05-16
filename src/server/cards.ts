@@ -61,7 +61,7 @@ export interface Run {
   id: string;
   card_id: string;
   agent_name: string;
-  status: 'created' | 'running' | 'awaiting' | 'completed' | 'failed' | 'cancelled';
+  status: 'created' | 'running' | 'awaiting' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   bridge_run_id: string | null;
   input_comment_id: string | null;
   error: string | null;

@@ -37,6 +37,8 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
   const [isCompletedFading, setIsCompletedFading] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [reconnectError, setReconnectError] = useState<string | null>(null);
 
   useEffect(() => {
     if (latestRun?.status !== 'completed') {
@@ -133,6 +135,44 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
 
           <ViewLiveButton onViewLive={onViewLive} runId={latestRun.id} />
         </div>
+      </div>
+    );
+  }
+
+
+  if (latestRun.status === 'interrupted') {
+    const reconnect = async () => {
+      setIsReconnecting(true);
+      setReconnectError(null);
+      try {
+        await api.runs.reconnect(cardId, latestRun.id);
+      } catch {
+        setReconnectError('Reconnect failed - please try again');
+      } finally {
+        setIsReconnecting(false);
+      }
+    };
+
+    if (isReconnecting) {
+      return (
+        <div className={barClassName}>
+          <div className={cn(statusClassName, 'text-muted-foreground')}>
+            <Loader2 className="size-4 animate-spin text-primary" />
+            <span>Reconnecting...</span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className={cn(barClassName, 'bg-destructive/10 text-destructive')}>
+        <div className={statusClassName}>
+          <XCircle className="size-4" />
+          <span>{reconnectError ?? 'Interrupted'}</span>
+        </div>
+        <Button onClick={() => void reconnect()} size="sm" type="button" variant="outline">
+          Reconnect
+        </Button>
       </div>
     );
   }

@@ -75,6 +75,7 @@ export function buildSessionCallbacks(db: Database.Database, sseManager?: SseMan
       sseManager?.emit(cardId, 'comment.created', agentComment);
     },
     onPermissionRequest: () => {},
+    onInterrupted: () => {},
   };
 }
 
@@ -122,6 +123,11 @@ export function registerCardRoutes(
     onPermissionRequest: (cardId, kanbanRunId, _wsReqId, tool) => {
       updateRun(db, kanbanRunId, { status: 'awaiting' });
       sseManager?.emit(cardId, 'run.awaiting', { run_id: kanbanRunId, tool: tool ?? '' });
+    },
+    onInterrupted: (cardId, kanbanRunId) => {
+      activeAcpRuns.delete(kanbanRunId);
+      updateRun(db, kanbanRunId, { status: 'interrupted' });
+      sseManager?.emit(cardId, 'run.interrupted', { run_id: kanbanRunId });
     },
   };
 
@@ -513,6 +519,51 @@ export function registerCardRoutes(
     } catch {
       return reply.status(502).send({ error: 'bridge unavailable' });
     }
+  });
+
+
+  app.post('/api/cards/:id/runs/:run_id/reconnect', async (request, reply) => {
+    const { id, run_id } = request.params as { id: string; run_id: string };
+
+    const card = getCard(db, id);
+    if (!card) {
+      return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    const run = listRuns(db, id).find((candidate) => candidate.id === run_id);
+    if (!run) {
+      return reply.status(404).send({ error: 'Run not found' });
+    }
+
+    if (run.status !== 'interrupted') {
+      return reply.status(409).send({ error: 'run is not interrupted' });
+    }
+
+    const agentId = card.agent_id;
+    if (!agentId) {
+      return reply.status(503).send({ error: 'no ACP agent configured for this card' });
+    }
+
+    const mgr = acpManagers?.get(agentId);
+    if (!mgr) {
+      return reply.status(503).send({ error: 'no ACP manager available for agent' });
+    }
+
+    const sessionId = run.bridge_run_id;
+    if (!sessionId) {
+      return reply.status(409).send({ error: 'run has no stored session id' });
+    }
+
+    const bot = card.agent_bot ?? 'unknown';
+    const runMgr = mgr.fork(callbacks);
+    activeAcpRuns.set(run_id, runMgr);
+
+    updateRun(db, run_id, { status: 'running' });
+    sseManager?.emit(id, 'run.in_progress', { run_id });
+
+    runMgr.resumeSession(id, bot, run_id, sessionId);
+
+    return reply.send({ run_id });
   });
 
   // -----------------------------------------------------------------------

@@ -43,6 +43,7 @@ type MockAcpRun = {
   dispatch: ReturnType<typeof vi.fn>;
   resume: ReturnType<typeof vi.fn>;
   cancelPendingPermission: ReturnType<typeof vi.fn>;
+  resumeSession: ReturnType<typeof vi.fn>;
   runId?: string;
 };
 
@@ -61,12 +62,14 @@ function createMockAcpManager(): {
       }),
       resume: vi.fn(),
       cancelPendingPermission: vi.fn(),
+      resumeSession: vi.fn(),
     };
     runs.push(run);
     return {
       dispatch: run.dispatch,
       resume: run.resume,
       cancelPendingPermission: run.cancelPendingPermission,
+      resumeSession: run.resumeSession,
     } as unknown as AcpSessionManager;
   });
 
@@ -694,6 +697,118 @@ describe('run routes', () => {
 
     expect(res.statusCode).toBe(502);
     expect(JSON.parse(res.body)).toEqual({ error: 'bridge unavailable' });
+  });
+});
+
+
+describe('POST /api/cards/:id/runs/:run_id/reconnect', () => {
+  it('returns 404 if card not found', async () => {
+    const { server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const res = await server.inject({
+      method: 'POST',
+      url: '/api/cards/nonexistent/runs/nonexistent/reconnect',
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body).error).toBe('Card not found');
+  });
+
+  it('returns 404 if run not found', async () => {
+    const { server, sessionCookie, db } = await createTestApp({ registerBridge: true });
+    createAcpAgentRow(db);
+    const cardRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Test', agent: 'agent-1' },
+    });
+    const cardId = JSON.parse(cardRes.body).card.id;
+    db.prepare('UPDATE cards SET agent_id = ? WHERE id = ?').run('agent-1', cardId);
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${cardId}/runs/nonexistent/reconnect`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body).error).toBe('Run not found');
+  });
+
+  it('returns 409 if run is not interrupted', async () => {
+    const { server, sessionCookie, db } = await createTestApp({ registerBridge: true });
+    createAcpAgentRow(db);
+    const cardRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Test' },
+    });
+    const cardId = JSON.parse(cardRes.body).card.id;
+    const run = createRun(db, { card_id: cardId, agent_name: 'bob' });
+    updateRun(db, run.id, { status: 'failed' });
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${cardId}/runs/${run.id}/reconnect`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body).error).toBe('run is not interrupted');
+  });
+
+  it('returns 503 if no ACP manager for the agent', async () => {
+    const { server, sessionCookie, db } = await createTestApp({ registerBridge: true });
+    createAcpAgentRow(db);
+    const cardRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Test' },
+    });
+    const cardId = JSON.parse(cardRes.body).card.id;
+    db.prepare('UPDATE cards SET agent_id = ? WHERE id = ?').run('agent-1', cardId);
+
+    const run = createRun(db, { card_id: cardId, agent_name: 'bob' });
+    updateRun(db, run.id, { status: 'interrupted', bridge_run_id: 'ses-xyz' } as any);
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${cardId}/runs/${run.id}/reconnect`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(503);
+  });
+
+  it('forks manager, calls resumeSession, updates run to running, returns run_id', async () => {
+    const { manager: acpManager, runs: acpRuns } = createMockAcpManager();
+    const acpManagers = new Map([['agent-1', acpManager]]);
+    const { server, sessionCookie, db } = await createTestApp({
+      registerBridge: true,
+      acpManagers,
+    });
+    createAcpAgentRow(db);
+    const cardRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Test', agent: 'agent-1' },
+    });
+    const cardId = JSON.parse(cardRes.body).card.id;
+    db.prepare('UPDATE cards SET agent_id = ? WHERE id = ?').run('agent-1', cardId);
+
+    const run = createRun(db, { card_id: cardId, agent_name: 'agent-1' });
+    db.prepare("UPDATE runs SET status = 'interrupted', bridge_run_id = ? WHERE id = ?").run('ses-stored-1', run.id);
+
+    const res = await server.inject({
+      method: 'POST',
+      url: `/api/cards/${cardId}/runs/${run.id}/reconnect`,
+      headers: { cookie: sessionCookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).run_id).toBe(run.id);
+
+    const updatedRun = listRuns(db, cardId).find((r) => r.id === run.id)!;
+    expect(updatedRun.status).toBe('running');
+
+    expect(acpRuns).toHaveLength(1);
+    expect(acpRuns[0].resumeSession).toHaveBeenCalledWith(cardId, 'agent-1', run.id, 'ses-stored-1');
   });
 });
 
