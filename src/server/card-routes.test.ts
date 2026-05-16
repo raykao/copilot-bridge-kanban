@@ -418,7 +418,7 @@ describe('comment routes', () => {
     const stale = listRuns(db, card.id).find((run) => run.id === firstRun?.id);
     expect(stale?.status).toBe('failed');
     expect(stale?.error).toBe('cancelled before new dispatch');
-    expect(stale?.bridge_run_id).toMatch(/^acp-session-/);
+    expect(stale?.acp_session_id).toMatch(/^acp-session-/);
     expect(acp.runs[0].cancelPendingPermission).toHaveBeenCalledTimes(1);
     expect(acp.runs[0].cancelPendingPermission).toHaveBeenCalledWith('deny');
 
@@ -766,7 +766,7 @@ describe('POST /api/cards/:id/runs/:run_id/reconnect', () => {
     db.prepare('UPDATE cards SET agent_id = ? WHERE id = ?').run('agent-1', cardId);
 
     const run = createRun(db, { card_id: cardId, agent_name: 'bob' });
-    updateRun(db, run.id, { status: 'interrupted', bridge_run_id: 'ses-xyz' } as any);
+    db.prepare("UPDATE runs SET status = 'interrupted', acp_session_id = ? WHERE id = ?").run('ses-xyz', run.id);
 
     const res = await server.inject({
       method: 'POST',
@@ -793,7 +793,7 @@ describe('POST /api/cards/:id/runs/:run_id/reconnect', () => {
     db.prepare('UPDATE cards SET agent_id = ? WHERE id = ?').run('agent-1', cardId);
 
     const run = createRun(db, { card_id: cardId, agent_name: 'agent-1' });
-    db.prepare("UPDATE runs SET status = 'interrupted', bridge_run_id = ? WHERE id = ?").run('ses-stored-1', run.id);
+    db.prepare("UPDATE runs SET status = 'interrupted', acp_session_id = ? WHERE id = ?").run('ses-stored-1', run.id);
 
     const res = await server.inject({
       method: 'POST',

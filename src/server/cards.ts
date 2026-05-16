@@ -63,6 +63,7 @@ export interface Run {
   agent_name: string;
   status: 'created' | 'running' | 'awaiting' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   bridge_run_id: string | null;
+  acp_session_id: string | null;
   input_comment_id: string | null;
   error: string | null;
   created_at: string;
@@ -270,7 +271,7 @@ export function createRun(db: Database.Database, input: NewRun): Run {
 }
 
 export function updateRun(db: Database.Database, id: string, patch: Partial<Run>): Run {
-  const allowed = ['status', 'bridge_run_id', 'error', 'finished_at'] as const;
+  const allowed = ['status', 'bridge_run_id', 'acp_session_id', 'error', 'finished_at'] as const;
   const sets: string[] = [];
   const params: unknown[] = [];
 

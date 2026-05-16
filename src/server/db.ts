@@ -102,6 +102,7 @@ export function initializeSchema(db: Database.Database): void {
       agent_name TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'created',
       bridge_run_id TEXT,
+      acp_session_id TEXT,
       input_comment_id TEXT,
       error TEXT,
       created_at TEXT NOT NULL,

@@ -95,8 +95,8 @@ export function registerCardRoutes(
   }
 
   const callbacks: DispatchCallbacks = {
-    onRunCreated: (kanbanRunId, bridgeRunId) => {
-      updateRun(db, kanbanRunId, { status: 'running', bridge_run_id: bridgeRunId });
+    onRunCreated: (kanbanRunId, acpSessionId) => {
+      updateRun(db, kanbanRunId, { status: 'running', acp_session_id: acpSessionId });
     },
     onEvent: (cardId, eventType, data) => {
       sseManager?.emit(cardId, eventType, data);
@@ -549,9 +549,9 @@ export function registerCardRoutes(
       return reply.status(503).send({ error: 'no ACP manager available for agent' });
     }
 
-    const sessionId = run.bridge_run_id;
+    const sessionId = run.acp_session_id;
     if (!sessionId) {
-      return reply.status(409).send({ error: 'run has no stored session id' });
+      return reply.status(409).send({ error: 'run has no stored ACP session id' });
     }
 
     if (activeAcpRuns.has(run_id)) {
