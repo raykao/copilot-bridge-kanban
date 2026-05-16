@@ -31,6 +31,8 @@ const resumeDecisions = new Set([
   'allow-all-session',
   'allow-all',
   'deny',
+  'deny-session',
+  'deny-all',
 ]);
 
 async function readBridgeResponseBody(response: Response): Promise<unknown> {
