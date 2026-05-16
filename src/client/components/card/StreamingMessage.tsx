@@ -1,5 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
-
 import { MarkdownContent } from "@/components/card/MarkdownContent";
 import { ToolCallTrajectory } from "@/components/card/ToolCallTrajectory";
 import type { StreamingState } from "@/hooks/useCardEvents";
@@ -19,45 +17,14 @@ function hasStreamingPayload(streamingState: StreamingState): boolean {
 }
 
 export function StreamingMessage({ streamingState }: StreamingMessageProps) {
-  const [renderedState, setRenderedState] = useState(streamingState);
-  const [visible, setVisible] = useState(hasStreamingPayload(streamingState));
-
-  const shouldRender = useMemo(
-    () => hasStreamingPayload(streamingState),
-    [streamingState],
-  );
-
-  useEffect(() => {
-    if (shouldRender) {
-      setRenderedState(streamingState);
-      setVisible(true);
-      return;
-    }
-
-    // Clear rendered content immediately to prevent duplication with persisted DB comment
-    setRenderedState(streamingState);
-    const timeout = window.setTimeout(() => {
-      setVisible(false);
-    }, 300);
-
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [shouldRender, streamingState]);
-
-  if (!visible) {
+  if (!hasStreamingPayload(streamingState)) {
     return null;
   }
 
   const isStreaming = streamingState.isStreaming;
 
   return (
-    <section
-      className={cn(
-        "space-y-4 rounded-xl border bg-muted/20 p-4 transition-opacity duration-300",
-        shouldRender ? "opacity-100" : "opacity-0",
-      )}
-    >
+    <section className="space-y-4 rounded-xl border bg-muted/20 p-4">
       <div className="flex items-center gap-2 text-sm font-medium">
         <span
           className={cn(
@@ -73,11 +40,10 @@ export function StreamingMessage({ streamingState }: StreamingMessageProps) {
               : "Agent response completed"}
         </span>
       </div>
-
-      {renderedState.content.trim() ? (
-        <MarkdownContent content={renderedState.content} />
+      {streamingState.content.trim() ? (
+        <MarkdownContent content={streamingState.content} />
       ) : null}
-      <ToolCallTrajectory toolCalls={renderedState.toolCalls} />
+      <ToolCallTrajectory toolCalls={streamingState.toolCalls} />
     </section>
   );
 }
