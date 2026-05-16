@@ -6,6 +6,8 @@ export interface DispatchCallbacks {
   onEvent: (cardId: string, eventType: string, data: Record<string, unknown>) => void;
   onComplete: (cardId: string, kanbanRunId: string, status: 'completed' | 'failed', error?: string) => void;
   onAgentMessage: (cardId: string, kanbanRunId: string, bot: string, content: string) => void;
+  onPermissionRequest: (cardId: string, kanbanRunId: string, wsReqId: number, tool: string | undefined) => void;
+  onInterrupted: (cardId: string, kanbanRunId: string) => void;
 }
 
 interface ActiveSession {
@@ -150,8 +152,14 @@ export class CardSessionManager {
       return;
     }
 
+    if (type === 'run.in_progress') {
+      this.callbacks.onEvent(cardId, 'run.in_progress', { ...data, run_id: kanbanRunId });
+      return;
+    }
+
     if (type === 'run.awaiting') {
-      this.callbacks.onEvent(cardId, 'run.awaiting', data);
+      const tool = typeof data.tool === 'string' ? data.tool : undefined;
+      this.callbacks.onPermissionRequest(cardId, kanbanRunId, 0, tool);
       return;
     }
 

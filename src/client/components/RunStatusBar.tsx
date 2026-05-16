@@ -36,6 +36,9 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
   const [showCompleted, setShowCompleted] = useState(false);
   const [isCompletedFading, setIsCompletedFading] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [reconnectError, setReconnectError] = useState<string | null>(null);
 
   useEffect(() => {
     if (latestRun?.status !== 'completed') {
@@ -78,32 +81,98 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
   if (latestRun.status === 'awaiting') {
     const awaitingPermission = streaming.awaitingPermission;
     const toolName = awaitingPermission?.tool || 'Permission requested';
+    const awaitingRunId = awaitingPermission?.runId ?? latestRun.id;
 
     const resume = async (decision: ResumeDecision) => {
       setIsResuming(true);
+      setResumeError(null);
       try {
-        await api.runs.resume(cardId, latestRun.id, decision);
+        await api.runs.resume(cardId, awaitingRunId, decision);
+      } catch {
+        setResumeError('Approval failed - please try again');
       } finally {
         setIsResuming(false);
       }
     };
 
+    // While submitting, show a neutral processing bar so the user knows it worked
+    if (isResuming) {
+      return (
+        <div className={barClassName}>
+          <div className={cn(statusClassName, 'text-muted-foreground')}>
+            <Loader2 className="size-4 animate-spin text-primary" />
+            <span>Processing approval...</span>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={cn(barClassName, 'bg-amber-500/10 text-amber-900 dark:text-amber-200')}>
         <div className={statusClassName}>
           <AlertTriangle className="size-4 text-amber-600 dark:text-amber-300" />
-          <span className="truncate">Awaiting approval: {toolName}</span>
+          <span className="truncate">{resumeError ?? `Awaiting approval: ${toolName}`}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button disabled={isResuming} onClick={() => void resume('allow-once')} size="sm" type="button">
-            {isResuming ? <Loader2 className="size-4 animate-spin" /> : null}
-            Approve
+          <Button onClick={() => void resume('allow-once')} size="sm" type="button">
+            Approve once
           </Button>
-          <Button disabled={isResuming} onClick={() => void resume('deny')} size="sm" type="button" variant="outline">
+          <Button onClick={() => void resume('allow-session')} size="sm" type="button" variant="outline">
+            Allow session
+          </Button>
+          <Button onClick={() => void resume('allow-all')} size="sm" type="button" variant="outline">
+            Always allow
+          </Button>
+          <Button onClick={() => void resume('deny')} size="sm" type="button" variant="outline">
             Deny
           </Button>
+          <Button onClick={() => void resume('deny-session')} size="sm" type="button" variant="outline">
+            Deny session
+          </Button>
+          <Button onClick={() => void resume('deny-all')} size="sm" type="button" variant="outline">
+            Always deny
+          </Button>
+
           <ViewLiveButton onViewLive={onViewLive} runId={latestRun.id} />
         </div>
+      </div>
+    );
+  }
+
+
+  if (latestRun.status === 'interrupted') {
+    const reconnect = async () => {
+      setIsReconnecting(true);
+      setReconnectError(null);
+      try {
+        await api.runs.reconnect(cardId, latestRun.id);
+      } catch {
+        setReconnectError('Reconnect failed - please try again');
+      } finally {
+        setIsReconnecting(false);
+      }
+    };
+
+    if (isReconnecting) {
+      return (
+        <div className={barClassName}>
+          <div className={cn(statusClassName, 'text-muted-foreground')}>
+            <Loader2 className="size-4 animate-spin text-primary" />
+            <span>Reconnecting...</span>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className={cn(barClassName, 'bg-destructive/10 text-destructive')}>
+        <div className={statusClassName}>
+          <XCircle className="size-4" />
+          <span>{reconnectError ?? 'Interrupted'}</span>
+        </div>
+        <Button onClick={() => void reconnect()} size="sm" type="button" variant="outline">
+          Reconnect
+        </Button>
       </div>
     );
   }

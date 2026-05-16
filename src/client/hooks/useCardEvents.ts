@@ -272,6 +272,7 @@ export function useCardEvents({
             return;
           }
 
+          void invalidateCardQueries();
           const data = event.data;
           setStreamingState((current) => ({
             ...current,
@@ -287,6 +288,7 @@ export function useCardEvents({
         }
         case 'run.queued':
         case 'run.in_progress': {
+          void invalidateCardQueries();
           setStreamingState((current) => ({
             ...current,
             isThinking: !current.isStreaming,
@@ -306,6 +308,7 @@ export function useCardEvents({
         case 'run.completed':
         case 'run.failed':
         case 'run.cancelled':
+        case 'run.interrupted':
         case 'card.status': {
           void invalidateCardQueries();
           setStreamingState((current) => ({

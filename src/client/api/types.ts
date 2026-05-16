@@ -111,7 +111,7 @@ export interface Run {
   id: string;
   card_id: string;
   agent_name: string;
-  status: "created" | "running" | "awaiting" | "completed" | "failed";
+  status: "created" | "running" | "awaiting" | "completed" | "failed" | "interrupted";
   bridge_run_id: string | null;
   input_comment_id: string | null;
   error: string | null;
@@ -124,7 +124,9 @@ export type ResumeDecision =
   | "allow-session"
   | "allow-all-session"
   | "allow-all"
-  | "deny";
+  | "deny"
+  | "deny-session"
+  | "deny-all";
 
 export interface CardComment {
   id: string;
@@ -172,6 +174,7 @@ export type CardEventType =
   | "run.completed"
   | "run.failed"
   | "run.cancelled"
+  | "run.interrupted"
   | "card.status"
   | "card.updated"
   | "tool.call"

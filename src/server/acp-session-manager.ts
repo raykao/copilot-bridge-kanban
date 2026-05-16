@@ -38,6 +38,22 @@ interface RpcNotification {
 
 type InboundMessage = RpcResult | RpcError | RpcNotification;
 
+interface InitializeResult {
+  serverCapabilities?: {
+    session?: {
+      resume?: boolean;
+    };
+  };
+}
+
+type RunLoopAction = (deps: {
+  ws: WebSocket;
+  call: (method: string, params: unknown) => Promise<unknown>;
+  nextId: () => number;
+  setSessionId: (id: string) => void;
+  setServerAdvertisesResume: (v: boolean) => void;
+}) => Promise<void>;
+
 function isRpcResult(m: InboundMessage): m is RpcResult {
   return 'result' in m && !('error' in m) && !('method' in m);
 }
@@ -55,11 +71,32 @@ function isRpcNotification(m: InboundMessage): m is RpcNotification {
 // ---------------------------------------------------------------------------
 
 export class AcpSessionManager {
+  private pendingPermission: { wsReqId: number; ws: WebSocket; resolve: (acpDecision: string) => void } | null = null;
+  private cancelActiveRun: (() => void) | null = null;
+
   constructor(
     private readonly agentConfig: AcpAgentConfig,
     private readonly callbacks: DispatchCallbacks,
     private readonly timeoutMs: number = 300_000,
   ) {}
+
+  fork(callbacks: DispatchCallbacks = this.callbacks): AcpSessionManager {
+    return new AcpSessionManager(this.agentConfig, callbacks, this.timeoutMs);
+  }
+
+  resume(acpDecision: string): void {
+    if (!this.pendingPermission) return;
+    const { wsReqId, ws, resolve } = this.pendingPermission;
+    this.pendingPermission = null;
+    resolve(acpDecision);
+    this._send(ws, { jsonrpc: '2.0', id: wsReqId, result: { decision: acpDecision } });
+  }
+
+  cancelPendingPermission(acpDecision: string = 'deny'): void {
+    this.resume(acpDecision);
+    this.cancelActiveRun?.();
+    this.cancelActiveRun = null;
+  }
 
   dispatch(cardId: string, bot: string, prompt: string, kanbanRunId: string): void {
     void this._run(cardId, bot, prompt, kanbanRunId).catch((err: unknown) => {
@@ -68,7 +105,41 @@ export class AcpSessionManager {
     });
   }
 
+  resumeSession(cardId: string, bot: string, runId: string, sessionId: string): void {
+    void this._resumeRun(cardId, bot, runId, sessionId).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      this.callbacks.onComplete(cardId, runId, 'failed', message);
+    });
+  }
+
   private async _run(cardId: string, bot: string, prompt: string, kanbanRunId: string): Promise<void> {
+    return this._runLoop(cardId, kanbanRunId, bot, null, async ({ ws, call, nextId, setSessionId, setServerAdvertisesResume }) => {
+      const initResult = await call('initialize', { clientCapabilities: {} }) as InitializeResult;
+      setServerAdvertisesResume(initResult?.serverCapabilities?.session?.resume === true);
+      const newResult = await call('session/new', {}) as { sessionId: string };
+      const sessionId = newResult.sessionId;
+      setSessionId(sessionId);
+      this.callbacks.onRunCreated(kanbanRunId, sessionId);
+      this._send(ws, { jsonrpc: '2.0', id: nextId(), method: 'session/prompt', params: { sessionId, prompt } });
+    });
+  }
+
+  private async _resumeRun(cardId: string, bot: string, runId: string, sessionId: string): Promise<void> {
+    return this._runLoop(cardId, runId, bot, sessionId, async ({ call, setServerAdvertisesResume }) => {
+      const initResult = await call('initialize', { clientCapabilities: {} }) as InitializeResult;
+      setServerAdvertisesResume(initResult?.serverCapabilities?.session?.resume === true);
+      await call('session/resume', { sessionId });
+      // No session/prompt - agent resumes autonomously
+    });
+  }
+
+  private async _runLoop(
+    cardId: string,
+    runId: string,
+    bot: string,
+    initialSessionId: string | null,
+    action: RunLoopAction,
+  ): Promise<void> {
     const ws = this._openWebSocket();
 
     let rpcIdCounter = 0;
@@ -77,21 +148,34 @@ export class AcpSessionManager {
     const pending = new Map<number, { resolve: (result: unknown) => void; reject: (err: Error) => void }>();
 
     let contentBuffer = '';
-    let sessionId: string | null = null;
+    let sessionId: string | null = initialSessionId;
     let completed = false;
+    let serverAdvertisesResume = false;
+
+    const setSessionId = (id: string): void => { sessionId = id; };
+    const setServerAdvertisesResume = (v: boolean): void => { serverAdvertisesResume = v; };
 
     const timeoutHandle = setTimeout(() => {
       if (completed) return;
       completed = true;
+      this.cancelActiveRun = null;
       if (sessionId) {
         this._send(ws, { jsonrpc: '2.0', id: nextId(), method: 'session/cancel', params: { sessionId } });
       }
       ws.close();
-      this.callbacks.onComplete(cardId, kanbanRunId, 'failed', 'ACP session timed out');
+      this.callbacks.onComplete(cardId, runId, 'failed', 'ACP session timed out');
     }, this.timeoutMs);
+
+    this.cancelActiveRun = (): void => {
+      if (completed) return;
+      completed = true;
+      clearTimeout(timeoutHandle);
+      ws.close();
+    };
 
     const cleanup = (): void => {
       clearTimeout(timeoutHandle);
+      this.cancelActiveRun = null;
       pending.forEach(({ reject }) => reject(new Error('WebSocket closed')));
       pending.clear();
     };
@@ -99,9 +183,10 @@ export class AcpSessionManager {
     const onError = (error: string): void => {
       if (completed) return;
       completed = true;
+      this.cancelActiveRun = null;
       clearTimeout(timeoutHandle);
       ws.close();
-      this.callbacks.onComplete(cardId, kanbanRunId, 'failed', error);
+      this.callbacks.onComplete(cardId, runId, 'failed', error);
     };
 
     const call = (method: string, params: unknown): Promise<unknown> => {
@@ -135,7 +220,8 @@ export class AcpSessionManager {
 
         // Server-initiated request (e.g. session/request_permission)
         if ('method' in msg) {
-          void this._handleServerRequest(ws, onError, msg as unknown as RpcRequest, cardId, kanbanRunId, nextId)
+          if (completed) return;
+          void this._handleServerRequest(ws, onError, msg as unknown as RpcRequest, cardId, runId, nextId)
             .catch(() => { /* ignore */ });
           return;
         }
@@ -145,18 +231,19 @@ export class AcpSessionManager {
         this._handleNotification(
           msg,
           cardId,
-          kanbanRunId,
+          runId,
           bot,
           (chunk) => { contentBuffer += chunk; },
           () => {
             if (completed) return;
             completed = true;
+            this.cancelActiveRun = null;
             clearTimeout(timeoutHandle);
             ws.close();
             if (contentBuffer.trim()) {
-              this.callbacks.onAgentMessage(cardId, kanbanRunId, bot, contentBuffer.trim());
+              this.callbacks.onAgentMessage(cardId, runId, bot, contentBuffer.trim());
             }
-            this.callbacks.onComplete(cardId, kanbanRunId, 'completed');
+            this.callbacks.onComplete(cardId, runId, 'completed');
           },
           onError,
         );
@@ -172,31 +259,36 @@ export class AcpSessionManager {
       cleanup();
       if (!completed) {
         completed = true;
-        this.callbacks.onComplete(cardId, kanbanRunId, 'failed', 'ACP WebSocket closed unexpectedly');
+        this.cancelActiveRun = null;
+        if (serverAdvertisesResume && sessionId !== null) {
+          this.callbacks.onInterrupted(cardId, runId);
+        } else {
+          this.callbacks.onComplete(cardId, runId, 'failed', 'ACP WebSocket closed unexpectedly');
+        }
       }
     });
 
     ws.on('error', (err) => {
       if (!completed) {
         completed = true;
+        this.cancelActiveRun = null;
         clearTimeout(timeoutHandle);
         ws.close();
-        this.callbacks.onComplete(cardId, kanbanRunId, 'failed', err.message);
+        this.callbacks.onComplete(cardId, runId, 'failed', err.message);
       }
     });
 
-    await wsReady;
-
-    // 1. initialize
-    await call('initialize', { clientCapabilities: {} });
-
-    // 2. session/new
-    const newResult = await call('session/new', {}) as { sessionId: string };
-    sessionId = newResult.sessionId;
-    this.callbacks.onRunCreated(kanbanRunId, sessionId);
-
-    // 3. session/prompt - responses come as notifications
-    this._send(ws, { jsonrpc: '2.0', id: nextId(), method: 'session/prompt', params: { sessionId, prompt } });
+    try {
+      await wsReady;
+      await action({ ws, call, nextId, setSessionId, setServerAdvertisesResume });
+    } catch (err) {
+      if (completed) return;
+      completed = true;
+      this.cancelActiveRun = null;
+      clearTimeout(timeoutHandle);
+      ws.close();
+      throw err;
+    }
   }
 
   private _openWebSocket(): WebSocket {
@@ -256,11 +348,11 @@ export class AcpSessionManager {
 
   private async _handleServerRequest(
     ws: WebSocket,
-    onError: (msg: string) => void,
+    _onError: (msg: string) => void,
     req: RpcRequest,
     cardId: string,
-    _kanbanRunId: string,
-    nextId: () => number,
+    kanbanRunId: string,
+    _nextId: () => number,
   ): Promise<void> {
     if (req.method !== 'session/request_permission') return;
 
@@ -268,20 +360,16 @@ export class AcpSessionManager {
 
     const params = req.params as Record<string, unknown>;
     const tool = params.tool as Record<string, unknown> | undefined;
+    const toolName = typeof tool?.name === 'string' ? tool.name : undefined;
 
     if (this.agentConfig.auto_approve) {
       this._send(ws, { jsonrpc: '2.0', id: req.id, result: { decision: 'allow' } });
       return;
     }
 
-    // Emit SSE event so the UI can show approve/deny
-    this.callbacks.onEvent(cardId, 'run.permission_request', {
-      permissionId: String(req.id),
-      tool,
+    await new Promise<string>((resolve) => {
+      this.pendingPermission = { wsReqId: req.id, ws, resolve };
+      this.callbacks.onPermissionRequest(cardId, kanbanRunId, req.id, toolName);
     });
-    // Phase 1: auto_approve=false denies and fails the run.
-    // Phase 3 will add a proper resume path.
-    this._send(ws, { jsonrpc: '2.0', id: req.id, result: { decision: 'deny' } });
-    onError('permission required - use resume to approve');
   }
 }

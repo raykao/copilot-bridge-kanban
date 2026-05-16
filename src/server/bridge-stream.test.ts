@@ -331,7 +331,7 @@ describe('subscribeToBridgeRunStream', () => {
     }));
 
     await waitFor(() => onClose.mock.calls.length === 1);
-    expect(events).toEqual([{ type: 'run.awaiting', data: { run_id: 'task-1', tool: '' } }]);
+    expect(events).toEqual([{ type: 'run.awaiting', data: { run_id: 'task-1' } }]);
   });
 
   it('calls onError with status and body when bridge returns non-ok, then fires onClose with no onEvent', async () => {
