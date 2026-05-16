@@ -42,6 +42,7 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
   const [showCompleted, setShowCompleted] = useState(false);
   const [isCompletedFading, setIsCompletedFading] = useState(false);
   const [isResuming, setIsResuming] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (latestRun?.status !== 'completed') {
@@ -84,11 +85,15 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
   if (latestRun.status === 'awaiting') {
     const awaitingPermission = streaming.awaitingPermission;
     const toolName = awaitingPermission?.tool || 'Permission requested';
+    const awaitingRunId = awaitingPermission?.runId ?? latestRun.id;
 
     const resume = async (decision: ResumeDecision) => {
       setIsResuming(true);
+      setResumeError(null);
       try {
-        await api.runs.resume(cardId, latestRun.id, decision);
+        await api.runs.resume(cardId, awaitingRunId, decision);
+      } catch {
+        setResumeError('Approval failed - please try again');
       } finally {
         setIsResuming(false);
       }
@@ -110,7 +115,7 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
       <div className={cn(barClassName, 'bg-amber-500/10 text-amber-900 dark:text-amber-200')}>
         <div className={statusClassName}>
           <AlertTriangle className="size-4 text-amber-600 dark:text-amber-300" />
-          <span className="truncate">Awaiting approval: {toolName}</span>
+          <span className="truncate">{resumeError ?? `Awaiting approval: ${toolName}`}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Approve split button */}
