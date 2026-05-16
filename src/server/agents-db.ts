@@ -11,6 +11,7 @@ export interface Agent {
   protocol: string;
   url: string;
   auto_approve: boolean;
+  api_key: string | null;
   created_at: string;
 }
 
@@ -19,6 +20,7 @@ export interface NewAgent {
   protocol?: string;
   url: string;
   auto_approve?: boolean;
+  api_key?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -32,6 +34,7 @@ function rowToAgent(row: Record<string, unknown>): Agent {
     protocol: row.protocol as string,
     url: row.url as string,
     auto_approve: (row.auto_approve as number) === 1,
+    api_key: (row.api_key as string | null) ?? null,
     created_at: row.created_at as string,
   };
 }
@@ -45,14 +48,15 @@ export function createAgent(db: Database.Database, input: NewAgent): Agent {
   const ts = new Date().toISOString();
 
   db.prepare(
-    `INSERT INTO agents (id, name, protocol, url, auto_approve, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO agents (id, name, protocol, url, auto_approve, api_key, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.name,
     input.protocol ?? 'acp',
     input.url,
     input.auto_approve === true ? 1 : 0,
+    input.api_key ?? null,
     ts,
   );
 
@@ -77,7 +81,7 @@ export function listAgents(db: Database.Database): Agent[] {
 export function updateAgent(
   db: Database.Database,
   id: string,
-  patch: Partial<Pick<Agent, 'name' | 'protocol' | 'url' | 'auto_approve'>>,
+  patch: Partial<Pick<Agent, 'name' | 'protocol' | 'url' | 'auto_approve' | 'api_key'>>,
 ): Agent {
   const sets: string[] = [];
   const params: unknown[] = [];
@@ -86,6 +90,7 @@ export function updateAgent(
   if ('protocol' in patch) { sets.push('protocol = ?'); params.push(patch.protocol); }
   if ('url' in patch) { sets.push('url = ?'); params.push(patch.url); }
   if ('auto_approve' in patch) { sets.push('auto_approve = ?'); params.push(patch.auto_approve === true ? 1 : 0); }
+  if ('api_key' in patch) { sets.push('api_key = ?'); params.push(patch.api_key ?? null); }
 
   if (sets.length === 0) {
     const existing = getAgent(db, id);

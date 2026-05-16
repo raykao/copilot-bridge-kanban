@@ -29,6 +29,7 @@ export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Data
       url: body.url.trim(),
       protocol: typeof body.protocol === 'string' ? body.protocol : 'acp',
       auto_approve: body.auto_approve === true,
+      api_key: typeof body.api_key === 'string' ? body.api_key : undefined,
     };
 
     const agent = createAgent(db, input);
@@ -53,6 +54,7 @@ export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Data
     if (typeof body.protocol === 'string') patch.protocol = body.protocol;
     if (typeof body.url === 'string') patch.url = body.url.trim();
     if (typeof body.auto_approve === 'boolean') patch.auto_approve = body.auto_approve;
+    if ('api_key' in body) patch.api_key = typeof body.api_key === 'string' ? body.api_key : null;
 
     const agent = updateAgent(db, id, patch);
     return reply.send({ agent });
