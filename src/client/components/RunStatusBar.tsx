@@ -210,6 +210,7 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
 
   if (latestRun.status === 'failed') {
     const error = latestRun.error ? truncateError(latestRun.error) : null;
+    const canReconnect = latestRun.bridge_run_id !== null;
 
     return (
       <div className={cn(barClassName, 'bg-destructive/10 text-destructive')}>
@@ -217,6 +218,23 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
           <XCircle className="size-4" />
           <span>Failed{error ? `: ${error}` : ''}</span>
         </div>
+        {canReconnect && (
+          <Button
+            className="h-auto px-0 text-xs"
+            disabled={isResuming}
+            onClick={() => {
+              setIsResuming(true);
+              api.runs.reconnect(cardId, latestRun.id).finally(() => {
+                setIsResuming(false);
+              });
+            }}
+            size="sm"
+            type="button"
+            variant="link"
+          >
+            {isResuming ? <Loader2 className="size-4 animate-spin" /> : 'Reconnect'}
+          </Button>
+        )}
       </div>
     );
   }

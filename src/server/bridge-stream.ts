@@ -246,6 +246,88 @@ export function subscribeToBridgeRunStream(opts: BridgeStreamOptions): () => voi
   };
 }
 
+export interface BridgeResubscribeOptions {
+  bridgeApiUrl: string;
+  bridgeApiKey: string;
+  bot: string;
+  /** The bridge task ID (stored as bridge_run_id in kanban runs table). */
+  bridgeRunId: string;
+  onEvent: (event: BridgeEvent) => void;
+  onClose: () => void;
+  onError?: (status: number, body: string) => void;
+}
+
+/** Resubscribe to an existing bridge run's SSE stream. Returns a cancel function. */
+export function resubscribeToBridgeRunStream(opts: BridgeResubscribeOptions): () => void {
+  const controller = new AbortController();
+  let closed = false;
+
+  const closeOnce = () => {
+    if (closed) return;
+    closed = true;
+    opts.onClose();
+  };
+
+  void (async () => {
+    try {
+      const base = opts.bridgeApiUrl.endsWith('/') ? opts.bridgeApiUrl : `${opts.bridgeApiUrl}/`;
+      const url = new URL(`agents/${encodeURIComponent(opts.bot)}/tasks::resubscribe`, base);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${opts.bridgeApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: opts.bridgeRunId }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => 'unknown error');
+        opts.onError?.(response.status, errorBody);
+        closeOnce();
+        return;
+      }
+
+      if (!response.body) {
+        closeOnce();
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          const event = parseFrame(frame);
+          if (!event) continue;
+          opts.onEvent(event);
+          if (event.type === 'run.completed' || event.type === 'run.failed') {
+            closeOnce();
+            return;
+          }
+        }
+      }
+
+      closeOnce();
+    } catch (err) {
+      opts.onError?.(0, err instanceof Error ? err.message : 'unknown error');
+      closeOnce();
+    }
+  })();
+
+  return () => {
+    controller.abort();
+  };
+}
+
 export interface RegisterPushOptions {
   bridgeApiUrl: string;
   bridgeApiKey: string;

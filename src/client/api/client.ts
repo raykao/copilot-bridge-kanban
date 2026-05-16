@@ -305,6 +305,13 @@ const runs = {
       },
     );
   },
+
+  reconnect(cardId: string, runId: string): Promise<{ run_id: string }> {
+    return apiFetch<{ run_id: string }>(
+      `/api/cards/${encodeURIComponent(cardId)}/runs/${encodeURIComponent(runId)}/reconnect`,
+      { method: 'POST' },
+    );
+  },
 };
 
 export const api = { auth, agents, cards, comments, labels, checkpoints, preferences, runs };

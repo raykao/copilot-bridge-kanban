@@ -22,7 +22,7 @@ import {
   type CardFilter,
 } from './cards.js';
 import { mintAgentTokenForCard } from './agent-tokens.js';
-import { registerBridgePushNotification, subscribeToBridgeRunStream } from './bridge-stream.js';
+import { registerBridgePushNotification, resubscribeToBridgeRunStream, subscribeToBridgeRunStream } from './bridge-stream.js';
 import type { SseManager } from './sse.js';
 
 const resumeDecisions = new Set([
@@ -531,6 +531,80 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
     } catch {
       return reply.status(502).send({ error: 'bridge unavailable' });
     }
+  });
+
+  app.post('/api/cards/:id/runs/:run_id/reconnect', async (request, reply) => {
+    const { id, run_id } = request.params as { id: string; run_id: string };
+
+    const card = getCard(db, id);
+    if (!card) {
+      return reply.status(404).send({ error: 'Card not found' });
+    }
+
+    const run = listRuns(db, id).find((candidate) => candidate.id === run_id);
+    if (!run) {
+      return reply.status(404).send({ error: 'Run not found' });
+    }
+
+    const bridgeRunId = run.bridge_run_id;
+    if (!bridgeRunId) {
+      return reply.status(400).send({ error: 'No bridge run to reconnect' });
+    }
+
+    if (run.status !== 'failed') {
+      return reply.status(409).send({ error: 'Run is not in failed state' });
+    }
+
+    if (!config) {
+      return reply.status(503).send({ error: 'bridge not configured' });
+    }
+
+    const bot = run.agent_name;
+    updateRun(db, run.id, { status: 'running' });
+
+    resubscribeToBridgeRunStream({
+      bridgeApiUrl: config.bridgeApiUrl,
+      bridgeApiKey: config.bridgeApiKey,
+      bot,
+      bridgeRunId,
+      onError: (status, errBody) => {
+        updateRun(db, run.id, {
+          status: 'failed',
+          finished_at: new Date().toISOString(),
+          error: `Reconnect stream failed: ${status} ${errBody}`,
+        });
+        app.log.error({ status, body: errBody, cardId: id, runId: run.id }, 'bridge reconnect stream failed');
+      },
+      onEvent: (event) => {
+        if (event.type === 'run.awaiting') {
+          updateRun(db, run.id, { status: 'awaiting' });
+          sseManager?.emit(id, event.type, { ...event.data, run_id: run.id });
+        } else {
+          sseManager?.emit(id, event.type, event.data);
+        }
+
+        if (event.type === 'run.completed') {
+          updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
+        } else if (event.type === 'run.failed') {
+          updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
+        } else if (event.type === 'message.completed') {
+          const content = (event.data.content as string) ?? '';
+          if (content !== '') {
+            const agentComment = addComment(db, {
+              card_id: card.id,
+              author_kind: 'agent',
+              author_id: bot,
+              content,
+              run_id: run.id,
+            });
+            sseManager?.emit(card.id, 'comment.created', agentComment);
+          }
+        }
+      },
+      onClose: () => {},
+    });
+
+    return reply.send({ run_id: run.id });
   });
 
   // -----------------------------------------------------------------------
