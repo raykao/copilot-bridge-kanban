@@ -1,15 +1,9 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 
 import { api } from '@/api/client';
 import type { ResumeDecision, Run } from '@/api/types';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import type { StreamingState } from '@/hooks/useCardEvents';
 import { cn } from '@/lib/utils';
 
@@ -118,75 +112,24 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
           <span className="truncate">{resumeError ?? `Awaiting approval: ${toolName}`}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Approve split button */}
-          <div className="flex items-center">
-            <Button
-              onClick={() => void resume('allow-once')}
-              size="sm"
-              type="button"
-              className="rounded-r-none border-r-0"
-            >
-              Approve once
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    size="sm"
-                    type="button"
-                    className="rounded-l-none px-2"
-                    aria-label="More approve options"
-                  >
-                    <ChevronDown className="size-4" />
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => void resume('allow-session')}>
-                  Allow for session
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void resume('allow-all')}>
-                  Always allow
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {/* Deny split button */}
-          <div className="flex items-center">
-            <Button
-              onClick={() => void resume('deny')}
-              size="sm"
-              type="button"
-              variant="outline"
-              className="rounded-r-none border-r-0"
-            >
-              Deny
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <Button
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                    className="rounded-l-none px-2"
-                    aria-label="More deny options"
-                  >
-                    <ChevronDown className="size-4" />
-                  </Button>
-                }
-              />
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => void resume('deny-session')}>
-                  Deny for session
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => void resume('deny-all')}>
-                  Always deny
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          <Button onClick={() => void resume('allow-once')} size="sm" type="button">
+            Approve once
+          </Button>
+          <Button onClick={() => void resume('allow-session')} size="sm" type="button" variant="outline">
+            Allow session
+          </Button>
+          <Button onClick={() => void resume('allow-all')} size="sm" type="button" variant="outline">
+            Always allow
+          </Button>
+          <Button onClick={() => void resume('deny')} size="sm" type="button" variant="outline">
+            Deny
+          </Button>
+          <Button onClick={() => void resume('deny-session')} size="sm" type="button" variant="outline">
+            Deny session
+          </Button>
+          <Button onClick={() => void resume('deny-all')} size="sm" type="button" variant="outline">
+            Always deny
+          </Button>
 
           <ViewLiveButton onViewLive={onViewLive} runId={latestRun.id} />
         </div>
