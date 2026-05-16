@@ -288,6 +288,7 @@ export function useCardEvents({
         }
         case 'run.queued':
         case 'run.in_progress': {
+          void invalidateCardQueries();
           setStreamingState((current) => ({
             ...current,
             isThinking: !current.isStreaming,

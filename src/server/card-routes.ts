@@ -146,20 +146,25 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
             app.log.error({ status, body: errBody, cardId: card.id, runId: run.id }, 'bridge stream failed');
           },
           onEvent: (event) => {
+            // Update DB first so re-fetches triggered by the SSE see current state.
             if (event.type === 'run.awaiting') {
               updateRun(db, run.id, { status: 'awaiting' });
-              sseManager?.emit(card.id, event.type, { ...event.data, run_id: run.id });
-            } else {
-              sseManager?.emit(card.id, event.type, event.data);
-            }
-
-            if (event.type === 'run.in_progress') {
+            } else if (event.type === 'run.in_progress') {
               updateRun(db, run.id, { status: 'running' });
             } else if (event.type === 'run.completed') {
               updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
             } else if (event.type === 'run.failed') {
               updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
-            } else if (event.type === 'message.completed') {
+            }
+
+            // Emit SSE after DB update.
+            if (event.type === 'run.awaiting') {
+              sseManager?.emit(card.id, event.type, { ...event.data, run_id: run.id });
+            } else {
+              sseManager?.emit(card.id, event.type, event.data);
+            }
+
+            if (event.type === 'message.completed') {
               const content = (event.data.content as string) ?? '';
               if (content !== '') {
                 const dup = db.prepare(
@@ -399,18 +404,21 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
             onEvent: (event) => {
               if (event.type === 'run.awaiting') {
                 updateRun(db, run.id, { status: 'awaiting' });
-                sseManager?.emit(id, event.type, { ...event.data, run_id: run.id });
-              } else {
-                sseManager?.emit(id, event.type, event.data);
-              }
-
-              if (event.type === 'run.in_progress') {
+              } else if (event.type === 'run.in_progress') {
                 updateRun(db, run.id, { status: 'running' });
               } else if (event.type === 'run.completed') {
                 updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
               } else if (event.type === 'run.failed') {
                 updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
-              } else if (event.type === 'message.completed') {
+              }
+
+              if (event.type === 'run.awaiting') {
+                sseManager?.emit(id, event.type, { ...event.data, run_id: run.id });
+              } else {
+                sseManager?.emit(id, event.type, event.data);
+              }
+
+              if (event.type === 'message.completed') {
                 const content = (event.data.content as string) ?? '';
                 if (content !== '') {
                   const dup = db.prepare(
