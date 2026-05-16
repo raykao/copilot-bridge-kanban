@@ -294,7 +294,7 @@ describe('comment routes', () => {
     expect(comments.find((comment) => comment.author_kind === 'agent')?.content).toBe('done');
   });
 
-  it('cancels stale bridge runs before dispatching a new stream', async () => {
+  it('marks stale bridge runs as failed before dispatching a new run', async () => {
     const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
 
     // Create a card with an agent
@@ -307,47 +307,17 @@ describe('comment routes', () => {
 
     // Seed a stale run directly into the DB (simulates a run that was in-progress)
     const { createRun: _cr, updateRun: _ur } = await import('./cards.js');
-    const staleRun = _cr(db, { card_id: card.id, agent_name: 'bob', input_comment_id: null });
+    const staleRun = _cr(db, { card_id: card.id, agent_name: 'bob', input_comment_id: undefined });
     _ur(db, staleRun.id, { status: 'running', bridge_run_id: 'stale-br-999' });
 
-    // Track call order: cancel fetch vs subscribe
-    const callOrder: string[] = [];
-    let cancelResolveFn!: () => void;
-    const cancelFetchPromise = new Promise<void>((resolve) => { cancelResolveFn = resolve; });
-
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (typeof url === 'string' && url.includes('tasks::cancel')) {
-        callOrder.push('cancel-start');
-        await cancelFetchPromise;
-        callOrder.push('cancel-done');
-      }
-      return new Response('{}', { status: 200 });
-    }));
-
-    vi.mocked(subscribeToBridgeRunStream).mockImplementation(() => {
-      callOrder.push('subscribe');
-      return () => {};
-    });
-
-    // Post a comment to trigger cancel + dispatch
+    // Post a comment to trigger new dispatch
     await server.inject({
       method: 'POST', url: `/api/cards/${card.id}/comments`,
       headers: { cookie: sessionCookie },
       payload: { content: 'new prompt' },
     });
 
-    // Subscribe should not have been called yet -- cancel is still in flight
-    expect(callOrder).toEqual(['cancel-start']);
-
-    // Now resolve the cancel fetch
-    cancelResolveFn();
-    // Wait for the async IIFE to proceed
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    // Now subscribe should have fired, strictly after cancel completed
-    expect(callOrder).toEqual(['cancel-start', 'cancel-done', 'subscribe']);
-
-    // Stale run should be marked failed
+    // Stale run should be marked failed immediately (synchronous DB cleanup)
     const runs = listRuns(db, card.id);
     const stale = runs.find((r) => r.id === staleRun.id);
     expect(stale?.status).toBe('failed');
