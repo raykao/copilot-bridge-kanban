@@ -334,13 +334,15 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
             (candidate.status === 'running' || candidate.status === 'awaiting') &&
             candidate.bridge_run_id,
         );
-        for (const staleRun of staleRuns) {
-          const bridgeRunId = staleRun.bridge_run_id;
-          if (!bridgeRunId) {
-            continue;
-          }
-          void Promise.resolve()
-            .then(async () => {
+
+        // Cancel stale bridge tasks first, then dispatch -- all in a single async
+        // IIFE so the route response is not blocked but the new stream only starts
+        // after the bridge has processed the cancels (preventing a 409 race).
+        void (async () => {
+          await Promise.all(
+            staleRuns.map(async (staleRun) => {
+              const bridgeRunId = staleRun.bridge_run_id;
+              if (!bridgeRunId) return;
               await fetch(`${config.bridgeApiUrl}/agents/${encodeURIComponent(bot)}/tasks::cancel`, {
                 method: 'POST',
                 headers: {
@@ -348,81 +350,78 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
                   'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({ id: bridgeRunId }),
+              }).catch(() => {});
+              updateRun(db, staleRun.id, {
+                status: 'failed',
+                error: 'cancelled before new dispatch',
+                finished_at: new Date().toISOString(),
               });
-            })
-            .catch(() => {});
-          updateRun(db, staleRun.id, {
-            status: 'failed',
-            error: 'cancelled before new dispatch',
-            finished_at: new Date().toISOString(),
-          });
-        }
-        // Fire-and-forget dispatch -- don't block the response
-        subscribeToBridgeRunStream({
-          bridgeApiUrl: config.bridgeApiUrl,
-          bridgeApiKey: config.bridgeApiKey,
-          runId: run.id,
-          bot,
-          prompt: body.content as string,
-          cardId: id,
-          onReady: async (bridgeRunId) => {
-            updateRun(db, run.id, { status: 'running', bridge_run_id: bridgeRunId });
-            try {
-              const minted = mintAgentTokenForCard(db, id, bot);
-              const callbackUrl = `${config.kanbanBaseUrl}/api/internal/push-callback/${encodeURIComponent(id)}/${encodeURIComponent(bot)}`;
-              await registerBridgePushNotification({
-                bridgeApiUrl: config.bridgeApiUrl,
-                bridgeApiKey: config.bridgeApiKey,
-                bot,
-                bridgeRunId,
-                callbackUrl,
-                callbackToken: minted.token,
-              });
-            } catch (err) {
-              app.log.warn({ err, cardId: id, runId: run.id }, 'failed to register push notification config; falling back to SSE-only persistence');
-            }
-          },
-          onError: (status, errBody) => {
-            updateRun(db, run.id, {
-              status: 'failed',
-              finished_at: new Date().toISOString(),
-              error: `Bridge stream failed: ${status} ${errBody}`,
-            });
-            if (status === 409) {
-              app.log.warn({ status, body: errBody, cardId: id, runId: run.id }, 'Bridge returned 409 - stale task was likely still active');
-            }
-            app.log.error({ status, body: errBody, cardId: id, runId: run.id }, 'bridge stream failed');
-          },
-          onEvent: (event) => {
-            if (event.type === 'run.awaiting') {
-              updateRun(db, run.id, { status: 'awaiting' });
-              sseManager?.emit(id, event.type, { ...event.data, run_id: run.id });
-            } else {
-              sseManager?.emit(id, event.type, event.data);
-            }
+            }),
+          );
 
-            if (event.type === 'run.in_progress') {
-              updateRun(db, run.id, { status: 'running' });
-            } else if (event.type === 'run.completed') {
-              updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
-            } else if (event.type === 'run.failed') {
-              updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
-            } else if (event.type === 'message.completed') {
-              const content = (event.data.content as string) ?? '';
-              if (content !== '') {
-                const agentComment = addComment(db, {
-                  card_id: id,
-                  author_kind: 'agent',
-                  author_id: bot,
-                  content,
-                  run_id: run.id,
+          subscribeToBridgeRunStream({
+            bridgeApiUrl: config.bridgeApiUrl,
+            bridgeApiKey: config.bridgeApiKey,
+            runId: run.id,
+            bot,
+            prompt: body.content as string,
+            cardId: id,
+            onReady: async (bridgeRunId) => {
+              updateRun(db, run.id, { status: 'running', bridge_run_id: bridgeRunId });
+              try {
+                const minted = mintAgentTokenForCard(db, id, bot);
+                const callbackUrl = `${config.kanbanBaseUrl}/api/internal/push-callback/${encodeURIComponent(id)}/${encodeURIComponent(bot)}`;
+                await registerBridgePushNotification({
+                  bridgeApiUrl: config.bridgeApiUrl,
+                  bridgeApiKey: config.bridgeApiKey,
+                  bot,
+                  bridgeRunId,
+                  callbackUrl,
+                  callbackToken: minted.token,
                 });
-                sseManager?.emit(id, 'comment.created', agentComment);
+              } catch (err) {
+                app.log.warn({ err, cardId: id, runId: run.id }, 'failed to register push notification config; falling back to SSE-only persistence');
               }
-            }
-          },
-          onClose: () => {},
-        });
+            },
+            onError: (status, errBody) => {
+              updateRun(db, run.id, {
+                status: 'failed',
+                finished_at: new Date().toISOString(),
+                error: `Bridge stream failed: ${status} ${errBody}`,
+              });
+              app.log.error({ status, body: errBody, cardId: id, runId: run.id }, 'bridge stream failed');
+            },
+            onEvent: (event) => {
+              if (event.type === 'run.awaiting') {
+                updateRun(db, run.id, { status: 'awaiting' });
+                sseManager?.emit(id, event.type, { ...event.data, run_id: run.id });
+              } else {
+                sseManager?.emit(id, event.type, event.data);
+              }
+
+              if (event.type === 'run.in_progress') {
+                updateRun(db, run.id, { status: 'running' });
+              } else if (event.type === 'run.completed') {
+                updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
+              } else if (event.type === 'run.failed') {
+                updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
+              } else if (event.type === 'message.completed') {
+                const content = (event.data.content as string) ?? '';
+                if (content !== '') {
+                  const agentComment = addComment(db, {
+                    card_id: id,
+                    author_kind: 'agent',
+                    author_id: bot,
+                    content,
+                    run_id: run.id,
+                  });
+                  sseManager?.emit(id, 'comment.created', agentComment);
+                }
+              }
+            },
+            onClose: () => {},
+          });
+        })();
       }
     }
 
