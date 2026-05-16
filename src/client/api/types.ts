@@ -111,7 +111,9 @@ export type ResumeDecision =
   | "allow-session"
   | "allow-all-session"
   | "allow-all"
-  | "deny";
+  | "deny"
+  | "deny-session"
+  | "deny-all";
 
 export interface CardComment {
   id: string;
