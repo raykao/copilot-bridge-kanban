@@ -95,6 +95,18 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
       }
     };
 
+    // While submitting, show a neutral processing bar so the user knows it worked
+    if (isResuming) {
+      return (
+        <div className={barClassName}>
+          <div className={cn(statusClassName, 'text-muted-foreground')}>
+            <Loader2 className="size-4 animate-spin text-primary" />
+            <span>Processing approval...</span>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className={cn(barClassName, 'bg-amber-500/10 text-amber-900 dark:text-amber-200')}>
         <div className={statusClassName}>
@@ -105,20 +117,17 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
           {/* Approve split button */}
           <div className="flex items-center">
             <Button
-              disabled={isResuming}
               onClick={() => void resume('allow-once')}
               size="sm"
               type="button"
               className="rounded-r-none border-r-0"
             >
-              {isResuming ? <Loader2 className="size-4 animate-spin" /> : null}
               Approve once
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={
                   <Button
-                    disabled={isResuming}
                     size="sm"
                     type="button"
                     className="rounded-l-none px-2"
@@ -129,10 +138,10 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
                 }
               />
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => void resume('allow-session')}>
+                <DropdownMenuItem onClick={() => void resume('allow-session')}>
                   Allow for session
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void resume('allow-all')}>
+                <DropdownMenuItem onClick={() => void resume('allow-all')}>
                   Always allow
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -142,7 +151,6 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
           {/* Deny split button */}
           <div className="flex items-center">
             <Button
-              disabled={isResuming}
               onClick={() => void resume('deny')}
               size="sm"
               type="button"
@@ -155,7 +163,6 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
               <DropdownMenuTrigger
                 render={
                   <Button
-                    disabled={isResuming}
                     size="sm"
                     type="button"
                     variant="outline"
@@ -167,10 +174,10 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
                 }
               />
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => void resume('deny-session')}>
+                <DropdownMenuItem onClick={() => void resume('deny-session')}>
                   Deny for session
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void resume('deny-all')}>
+                <DropdownMenuItem onClick={() => void resume('deny-all')}>
                   Always deny
                 </DropdownMenuItem>
               </DropdownMenuContent>
