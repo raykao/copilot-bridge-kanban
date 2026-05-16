@@ -55,11 +55,32 @@ function isRpcNotification(m: InboundMessage): m is RpcNotification {
 // ---------------------------------------------------------------------------
 
 export class AcpSessionManager {
+  private pendingPermission: { wsReqId: number; ws: WebSocket; resolve: (acpDecision: string) => void } | null = null;
+  private cancelActiveRun: (() => void) | null = null;
+
   constructor(
     private readonly agentConfig: AcpAgentConfig,
     private readonly callbacks: DispatchCallbacks,
     private readonly timeoutMs: number = 300_000,
   ) {}
+
+  fork(callbacks: DispatchCallbacks = this.callbacks): AcpSessionManager {
+    return new AcpSessionManager(this.agentConfig, callbacks, this.timeoutMs);
+  }
+
+  resume(acpDecision: string): void {
+    if (!this.pendingPermission) return;
+    const { wsReqId, ws, resolve } = this.pendingPermission;
+    this.pendingPermission = null;
+    resolve(acpDecision);
+    this._send(ws, { jsonrpc: '2.0', id: wsReqId, result: { decision: acpDecision } });
+  }
+
+  cancelPendingPermission(acpDecision: string = 'deny'): void {
+    this.resume(acpDecision);
+    this.cancelActiveRun?.();
+    this.cancelActiveRun = null;
+  }
 
   dispatch(cardId: string, bot: string, prompt: string, kanbanRunId: string): void {
     void this._run(cardId, bot, prompt, kanbanRunId).catch((err: unknown) => {
@@ -83,6 +104,7 @@ export class AcpSessionManager {
     const timeoutHandle = setTimeout(() => {
       if (completed) return;
       completed = true;
+      this.cancelActiveRun = null;
       if (sessionId) {
         this._send(ws, { jsonrpc: '2.0', id: nextId(), method: 'session/cancel', params: { sessionId } });
       }
@@ -90,8 +112,16 @@ export class AcpSessionManager {
       this.callbacks.onComplete(cardId, kanbanRunId, 'failed', 'ACP session timed out');
     }, this.timeoutMs);
 
+    this.cancelActiveRun = (): void => {
+      if (completed) return;
+      completed = true;
+      clearTimeout(timeoutHandle);
+      ws.close();
+    };
+
     const cleanup = (): void => {
       clearTimeout(timeoutHandle);
+      this.cancelActiveRun = null;
       pending.forEach(({ reject }) => reject(new Error('WebSocket closed')));
       pending.clear();
     };
@@ -99,6 +129,7 @@ export class AcpSessionManager {
     const onError = (error: string): void => {
       if (completed) return;
       completed = true;
+      this.cancelActiveRun = null;
       clearTimeout(timeoutHandle);
       ws.close();
       this.callbacks.onComplete(cardId, kanbanRunId, 'failed', error);
@@ -135,6 +166,7 @@ export class AcpSessionManager {
 
         // Server-initiated request (e.g. session/request_permission)
         if ('method' in msg) {
+          if (completed) return;
           void this._handleServerRequest(ws, onError, msg as unknown as RpcRequest, cardId, kanbanRunId, nextId)
             .catch(() => { /* ignore */ });
           return;
@@ -151,6 +183,7 @@ export class AcpSessionManager {
           () => {
             if (completed) return;
             completed = true;
+            this.cancelActiveRun = null;
             clearTimeout(timeoutHandle);
             ws.close();
             if (contentBuffer.trim()) {
@@ -172,6 +205,7 @@ export class AcpSessionManager {
       cleanup();
       if (!completed) {
         completed = true;
+        this.cancelActiveRun = null;
         this.callbacks.onComplete(cardId, kanbanRunId, 'failed', 'ACP WebSocket closed unexpectedly');
       }
     });
@@ -179,6 +213,7 @@ export class AcpSessionManager {
     ws.on('error', (err) => {
       if (!completed) {
         completed = true;
+        this.cancelActiveRun = null;
         clearTimeout(timeoutHandle);
         ws.close();
         this.callbacks.onComplete(cardId, kanbanRunId, 'failed', err.message);
@@ -256,11 +291,11 @@ export class AcpSessionManager {
 
   private async _handleServerRequest(
     ws: WebSocket,
-    onError: (msg: string) => void,
+    _onError: (msg: string) => void,
     req: RpcRequest,
     cardId: string,
-    _kanbanRunId: string,
-    nextId: () => number,
+    kanbanRunId: string,
+    _nextId: () => number,
   ): Promise<void> {
     if (req.method !== 'session/request_permission') return;
 
@@ -268,20 +303,16 @@ export class AcpSessionManager {
 
     const params = req.params as Record<string, unknown>;
     const tool = params.tool as Record<string, unknown> | undefined;
+    const toolName = typeof tool?.name === 'string' ? tool.name : undefined;
 
     if (this.agentConfig.auto_approve) {
       this._send(ws, { jsonrpc: '2.0', id: req.id, result: { decision: 'allow' } });
       return;
     }
 
-    // Emit SSE event so the UI can show approve/deny
-    this.callbacks.onEvent(cardId, 'run.permission_request', {
-      permissionId: String(req.id),
-      tool,
+    await new Promise<string>((resolve) => {
+      this.pendingPermission = { wsReqId: req.id, ws, resolve };
+      this.callbacks.onPermissionRequest(cardId, kanbanRunId, req.id, toolName);
     });
-    // Phase 1: auto_approve=false denies and fails the run.
-    // Phase 3 will add a proper resume path.
-    this._send(ws, { jsonrpc: '2.0', id: req.id, result: { decision: 'deny' } });
-    onError('permission required - use resume to approve');
   }
 }

@@ -29,6 +29,7 @@ function createCallbacks(): DispatchCallbacks {
     onEvent: vi.fn(),
     onComplete: vi.fn(),
     onAgentMessage: vi.fn(),
+    onPermissionRequest: vi.fn(),
   };
 }
 

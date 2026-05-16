@@ -74,6 +74,7 @@ export function buildSessionCallbacks(db: Database.Database, sseManager?: SseMan
       });
       sseManager?.emit(cardId, 'comment.created', agentComment);
     },
+    onPermissionRequest: () => {},
   };
 }
 
@@ -85,11 +86,53 @@ export function registerCardRoutes(
   cardSessionManager?: CardSessionManager,
   acpManagers?: Map<string, AcpSessionManager>,
 ): void {
+  const activeAcpRuns = new Map<string, AcpSessionManager>();
+  const acpRunIds = new Set<string>();
+
+  function toAcpDecision(kanbanDecision: string): string {
+    return kanbanDecision.startsWith('allow') ? 'allow' : 'deny';
+  }
+
+  const callbacks: DispatchCallbacks = {
+    onRunCreated: (kanbanRunId, bridgeRunId) => {
+      updateRun(db, kanbanRunId, { status: 'running', bridge_run_id: bridgeRunId });
+    },
+    onEvent: (cardId, eventType, data) => {
+      sseManager?.emit(cardId, eventType, data);
+    },
+    onComplete: (cardId, kanbanRunId, status, error) => {
+      activeAcpRuns.delete(kanbanRunId);
+      updateRun(db, kanbanRunId, { status, finished_at: new Date().toISOString(), ...(error ? { error } : {}) });
+    },
+    onAgentMessage: (cardId, kanbanRunId, bot, content) => {
+      if (!content) return;
+      const dup = db.prepare(
+        "SELECT 1 FROM card_comments WHERE run_id = ? AND author_kind = 'agent' AND content = ? LIMIT 1",
+      ).get(kanbanRunId, content);
+      if (dup) return;
+      const agentComment = addComment(db, {
+        card_id: cardId,
+        author_kind: 'agent',
+        author_id: bot,
+        content,
+        run_id: kanbanRunId,
+      });
+      sseManager?.emit(cardId, 'comment.created', agentComment);
+    },
+    onPermissionRequest: (cardId, kanbanRunId, _wsReqId, tool) => {
+      updateRun(db, kanbanRunId, { status: 'awaiting' });
+      sseManager?.emit(cardId, 'run.awaiting', { run_id: kanbanRunId, tool: tool ?? '' });
+    },
+  };
+
   function resolveAndDispatch(cardId: string, cardAgentId: string | null, bot: string, prompt: string, runId: string): void {
     if (cardAgentId) {
       const mgr = acpManagers?.get(cardAgentId);
       if (mgr) {
-        mgr.dispatch(cardId, bot, prompt, runId);
+        const runMgr = mgr.fork(callbacks);
+        acpRunIds.add(runId);
+        activeAcpRuns.set(runId, runMgr);
+        runMgr.dispatch(cardId, bot, prompt, runId);
         return;
       }
     }
@@ -322,6 +365,11 @@ export function registerCardRoutes(
             candidate.id !== run.id,
         );
         for (const staleRun of staleRuns) {
+          const staleAcpMgr = activeAcpRuns.get(staleRun.id);
+          if (staleAcpMgr) {
+            activeAcpRuns.delete(staleRun.id);
+            staleAcpMgr.cancelPendingPermission('deny');
+          }
           updateRun(db, staleRun.id, {
             status: 'failed',
             error: 'cancelled before new dispatch',
@@ -409,6 +457,30 @@ export function registerCardRoutes(
       return reply.status(400).send({ error: 'invalid decision' });
     }
 
+    // ACP path: resume via WebSocket
+    const acpMgr = activeAcpRuns.get(run_id);
+    if (acpMgr) {
+      if (run.status !== 'awaiting') {
+        activeAcpRuns.delete(run_id);
+        acpMgr.cancelPendingPermission('deny');
+        updateRun(db, run_id, {
+          status: 'failed',
+          error: 'cancelled by invalid resume',
+          finished_at: new Date().toISOString(),
+        });
+        return reply.status(409).send({ error: 'run is not awaiting permission' });
+      }
+      updateRun(db, run_id, { status: 'running' });
+      sseManager?.emit(id, 'run.in_progress', { run_id });
+      acpMgr.resume(toAcpDecision(body.decision));
+      return reply.send({ run_id, decision: body.decision });
+    }
+
+    if (acpRunIds.has(run_id)) {
+      return reply.status(409).send({ error: 'run is not awaiting permission' });
+    }
+
+    // HTTP bridge path
     if (!config) {
       return reply.status(503).send({ error: 'bridge not configured' });
     }

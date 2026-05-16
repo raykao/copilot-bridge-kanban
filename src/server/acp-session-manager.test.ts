@@ -6,13 +6,14 @@ import type { DispatchCallbacks } from './card-session-manager.js';
 
 function makeCallbacks(): { cbs: DispatchCallbacks; calls: Record<string, unknown[][]> } {
   const calls: Record<string, unknown[][]> = {
-    onRunCreated: [], onEvent: [], onComplete: [], onAgentMessage: [],
+    onRunCreated: [], onEvent: [], onComplete: [], onAgentMessage: [], onPermissionRequest: [],
   };
   const cbs: DispatchCallbacks = {
     onRunCreated: (...args) => { calls.onRunCreated.push(args); },
     onEvent: (...args) => { calls.onEvent.push(args); },
     onComplete: (...args) => { calls.onComplete.push(args); },
     onAgentMessage: (...args) => { calls.onAgentMessage.push(args); },
+    onPermissionRequest: (...args) => { calls.onPermissionRequest.push(args); },
   };
   return { cbs, calls };
 }
@@ -104,14 +105,19 @@ describe('AcpSessionManager - auto_approve=true', () => {
 });
 
 describe('AcpSessionManager - auto_approve=false', () => {
-  it('emits run.permission_request SSE and fails run', async () => {
+  it('waits for resume, sends decision, and completes run', async () => {
+    let permissionResponseDecision: string | null = null;
     wss.once('connection', (client: WsType) => {
       client.on('message', (raw) => {
-        const msg = JSON.parse(raw.toString()) as { id: number; method: string };
+        const msg = JSON.parse(raw.toString()) as { id: number; method?: string; result?: { decision: string } };
         if (msg.method === 'initialize')    client.send(rpcResult(msg.id, { serverCapabilities: {} }));
         if (msg.method === 'session/new')   client.send(rpcResult(msg.id, { sessionId: 'ses-3' }));
         if (msg.method === 'session/prompt') {
           client.send(rpcServerRequest(77, 'session/request_permission', { sessionId: 'ses-3', tool: { name: 'bash', description: 'rm -rf /' } }));
+        }
+        if (msg.result && msg.id === 77) {
+          permissionResponseDecision = msg.result.decision;
+          client.send(notify('session/update', { sessionId: 'ses-3', type: 'completed', content: 'resumed' }));
         }
       });
     });
@@ -120,12 +126,93 @@ describe('AcpSessionManager - auto_approve=false', () => {
     const mgr = new AcpSessionManager({ url: `ws://localhost:${port}`, auto_approve: false }, cbs);
     mgr.dispatch('card-3', 'bob', 'dangerous task', 'run-3');
 
-    await waitFor(() => calls.onComplete.length > 0);
+    await waitFor(() => calls.onPermissionRequest.length > 0);
+    expect(calls.onPermissionRequest[0]).toEqual(['card-3', 'run-3', 77, 'bash']);
 
-    const permEvents = calls.onEvent.filter((a) => a[1] === 'run.permission_request');
-    expect(permEvents).toHaveLength(1);
+    mgr.resume('allow');
+
+    await waitFor(() => calls.onComplete.length > 0);
+    expect(permissionResponseDecision).toBe('allow');
     expect(calls.onComplete.length).toBe(1);
-    expect(calls.onComplete[0][2]).toBe('failed');
+    expect(calls.onComplete[0][2]).toBe('completed');
+  });
+
+  it('cancelPendingPermission sends deny and suppresses later completion', async () => {
+    let permissionResponseDecision: string | null = null;
+    wss.once('connection', (client: WsType) => {
+      client.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString()) as { id: number; method?: string; result?: { decision: string } };
+        if (msg.method === 'initialize') client.send(rpcResult(msg.id, { serverCapabilities: {} }));
+        if (msg.method === 'session/new') client.send(rpcResult(msg.id, { sessionId: 'ses-cancel' }));
+        if (msg.method === 'session/prompt') {
+          client.send(rpcServerRequest(88, 'session/request_permission', { sessionId: 'ses-cancel', tool: { name: 'bash' } }));
+        }
+        if (msg.result && msg.id === 88) {
+          permissionResponseDecision = msg.result.decision;
+          client.send(notify('session/update', { sessionId: 'ses-cancel', type: 'completed', content: 'too late' }));
+          setTimeout(() => client.close(), 0);
+        }
+      });
+    });
+
+    const { cbs, calls } = makeCallbacks();
+    const mgr = new AcpSessionManager({ url: `ws://localhost:${port}`, auto_approve: false }, cbs);
+    mgr.dispatch('card-cancel', 'bob', 'dangerous task', 'run-cancel');
+
+    await waitFor(() => calls.onPermissionRequest.length > 0);
+    mgr.cancelPendingPermission();
+
+    await waitFor(() => permissionResponseDecision === 'deny');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(calls.onComplete).toHaveLength(0);
+    expect(calls.onAgentMessage).toHaveLength(0);
+  });
+
+  it('fork isolates concurrent permission requests from the same base manager', async () => {
+    let connectionCount = 0;
+    const permissionResponses = new Map<string, string>();
+
+    wss.on('connection', (client: WsType) => {
+      connectionCount += 1;
+      const sessionId = `ses-fork-${connectionCount}`;
+      const permissionRequestId = 500 + connectionCount;
+
+      client.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString()) as { id: number; method?: string; result?: { decision: string } };
+        if (msg.method === 'initialize') client.send(rpcResult(msg.id, { serverCapabilities: {} }));
+        if (msg.method === 'session/new') client.send(rpcResult(msg.id, { sessionId }));
+        if (msg.method === 'session/prompt') {
+          client.send(rpcServerRequest(
+            permissionRequestId,
+            'session/request_permission',
+            { sessionId, tool: { name: 'bash', description: `tool-${sessionId}` } },
+          ));
+        }
+        if (msg.result && msg.id === permissionRequestId) {
+          permissionResponses.set(sessionId, msg.result.decision);
+          client.send(notify('session/update', { sessionId, type: 'completed', content: msg.result.decision }));
+        }
+      });
+    });
+
+    const { cbs, calls } = makeCallbacks();
+    const baseMgr = new AcpSessionManager({ url: `ws://localhost:${port}`, auto_approve: false }, cbs);
+    const runMgr1 = baseMgr.fork(cbs);
+    const runMgr2 = baseMgr.fork(cbs);
+
+    runMgr1.dispatch('card-6', 'bob', 'first dangerous task', 'run-6a');
+    runMgr2.dispatch('card-6', 'bob', 'second dangerous task', 'run-6b');
+
+    await waitFor(() => calls.onPermissionRequest.length === 2);
+    expect(new Set(calls.onPermissionRequest.map((args) => args[1]))).toEqual(new Set(['run-6a', 'run-6b']));
+
+    runMgr2.resume('deny');
+    runMgr1.resume('allow');
+
+    await waitFor(() => calls.onComplete.length === 2);
+    expect([...permissionResponses.values()].sort()).toEqual(['allow', 'deny']);
+    expect(calls.onComplete.every((args) => args[2] === 'completed')).toBe(true);
   });
 });
 
