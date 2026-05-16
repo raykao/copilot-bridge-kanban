@@ -311,6 +311,19 @@ export function registerCardRoutes(
 
       if (config) {
         const bot = card.agent_bot;
+        // Mark stale runs as failed before dispatching a new one
+        const staleRuns = listRuns(db, id).filter(
+          (candidate) =>
+            (candidate.status === 'running' || candidate.status === 'awaiting') &&
+            candidate.id !== run.id,
+        );
+        for (const staleRun of staleRuns) {
+          updateRun(db, staleRun.id, {
+            status: 'failed',
+            error: 'cancelled before new dispatch',
+            finished_at: new Date().toISOString(),
+          });
+        }
         resolveAndDispatch(id, card.agent_id, bot, body.content as string, run.id);
       }
     }
