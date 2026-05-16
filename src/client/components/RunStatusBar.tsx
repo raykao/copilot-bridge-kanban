@@ -148,7 +148,7 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
             Always allow
           </Button>
           <Button onClick={() => void resume('deny')} size="sm" type="button" variant="outline">
-            Deny
+            Deny once
           </Button>
           <Button onClick={() => void resume('deny-session')} size="sm" type="button" variant="outline">
             Deny session
