@@ -62,6 +62,8 @@ export function buildSessionCallbacks(db: Database.Database, sseManager?: SseMan
     },
     onComplete: (cardId, kanbanRunId, status, error) => {
       updateRun(db, kanbanRunId, { status, finished_at: new Date().toISOString(), ...(error ? { error } : {}) });
+      const eventType = status === 'completed' ? 'run.completed' : status === 'failed' ? 'run.failed' : 'run.cancelled';
+      sseManager?.emit(cardId, eventType, { run_id: kanbanRunId });
     },
     onAgentMessage: (cardId, kanbanRunId, bot, content) => {
       if (!content) return;
@@ -521,6 +523,11 @@ export function registerCardRoutes(
       if (!bridgeResponse.ok) {
         return reply.status(502).send({ error: 'bridge unavailable' });
       }
+
+      // Update DB and notify frontend immediately so the approval bar clears
+      // without waiting for the bridge to send run.in_progress over the SSE stream.
+      updateRun(db, run_id, { status: 'running' });
+      sseManager?.emit(id, 'run.in_progress', { run_id });
 
       return reply.send({ run_id, decision: body.decision });
     } catch {
