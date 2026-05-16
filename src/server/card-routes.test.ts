@@ -350,6 +350,47 @@ describe('comment routes', () => {
     expect(comments.find((comment) => comment.author_kind === 'agent')?.content).toBe('done');
   });
 
+  it('buildSessionCallbacks marks permission requests awaiting and emits SSE', async () => {
+    const { db, server, sessionCookie } = await createTestApp();
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Permission card', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+    const sseManager = { emit: vi.fn() } as unknown as Parameters<typeof buildSessionCallbacks>[1];
+
+    const callbacks = buildSessionCallbacks(db, sseManager);
+    callbacks.onPermissionRequest(card.id, run.id, 0, 'bash');
+
+    const [updatedRun] = listRuns(db, card.id);
+    expect(updatedRun.status).toBe('awaiting');
+    expect(sseManager?.emit).toHaveBeenCalledWith(card.id, 'run.awaiting', { run_id: run.id, tool: 'bash' });
+  });
+
+  it('buildSessionCallbacks marks run.in_progress events running', async () => {
+    const { db, server, sessionCookie } = await createTestApp();
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Progress card', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+    const run = createRun(db, { card_id: card.id, agent_name: 'bob' });
+    updateRun(db, run.id, { status: 'awaiting' });
+    const sseManager = { emit: vi.fn() } as unknown as Parameters<typeof buildSessionCallbacks>[1];
+
+    const callbacks = buildSessionCallbacks(db, sseManager);
+    callbacks.onEvent(card.id, 'run.in_progress', { run_id: run.id });
+
+    const [updatedRun] = listRuns(db, card.id);
+    expect(updatedRun.status).toBe('running');
+    expect(sseManager?.emit).toHaveBeenCalledWith(card.id, 'run.in_progress', { run_id: run.id });
+  });
+
   it('marks stale bridge runs as failed before dispatching a new run', async () => {
     const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
 

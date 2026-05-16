@@ -54,6 +54,10 @@ export function buildSessionCallbacks(db: Database.Database, sseManager?: SseMan
       updateRun(db, kanbanRunId, { status: 'running', bridge_run_id: bridgeRunId });
     },
     onEvent: (cardId, eventType, data) => {
+      if (eventType === 'run.in_progress') {
+        const runId = typeof data.run_id === 'string' ? data.run_id : null;
+        if (runId) updateRun(db, runId, { status: 'running' });
+      }
       sseManager?.emit(cardId, eventType, data);
     },
     onComplete: (cardId, kanbanRunId, status, error) => {
@@ -74,7 +78,10 @@ export function buildSessionCallbacks(db: Database.Database, sseManager?: SseMan
       });
       sseManager?.emit(cardId, 'comment.created', agentComment);
     },
-    onPermissionRequest: () => {},
+    onPermissionRequest: (cardId, kanbanRunId, _wsReqId, tool) => {
+      updateRun(db, kanbanRunId, { status: 'awaiting' });
+      sseManager?.emit(cardId, 'run.awaiting', { run_id: kanbanRunId, tool: tool ?? '' });
+    },
     onInterrupted: () => {},
   };
 }

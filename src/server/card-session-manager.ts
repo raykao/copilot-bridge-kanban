@@ -152,8 +152,14 @@ export class CardSessionManager {
       return;
     }
 
+    if (type === 'run.in_progress') {
+      this.callbacks.onEvent(cardId, 'run.in_progress', { ...data, run_id: kanbanRunId });
+      return;
+    }
+
     if (type === 'run.awaiting') {
-      this.callbacks.onEvent(cardId, 'run.awaiting', data);
+      const tool = typeof data.tool === 'string' ? data.tool : undefined;
+      this.callbacks.onPermissionRequest(cardId, kanbanRunId, 0, tool);
       return;
     }
 
