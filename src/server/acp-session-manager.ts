@@ -222,7 +222,7 @@ export class AcpSessionManager {
       if (!completed) {
         completed = true;
         this.cancelActiveRun = null;
-        if (serverAdvertisesResume) {
+        if (serverAdvertisesResume && sessionId !== null) {
           this.callbacks.onInterrupted(cardId, kanbanRunId);
         } else {
           this.callbacks.onComplete(cardId, kanbanRunId, 'failed', 'ACP WebSocket closed unexpectedly');
@@ -282,6 +282,7 @@ export class AcpSessionManager {
       if (completed) return;
       completed = true;
       this.cancelActiveRun = null;
+      this._send(ws, { jsonrpc: '2.0', id: nextId(), method: 'session/cancel', params: { sessionId } });
       ws.close();
       this.callbacks.onComplete(cardId, runId, 'failed', 'ACP session timed out');
     }, this.timeoutMs);
@@ -380,7 +381,7 @@ export class AcpSessionManager {
       if (!completed) {
         completed = true;
         this.cancelActiveRun = null;
-        if (serverAdvertisesResume) {
+        if (serverAdvertisesResume && sessionId !== null) {
           this.callbacks.onInterrupted(cardId, runId);
         } else {
           this.callbacks.onComplete(cardId, runId, 'failed', 'ACP WebSocket closed unexpectedly');

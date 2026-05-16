@@ -275,7 +275,7 @@ describe('AcpSessionManager - interrupted on WS close', () => {
     expect(calls.onComplete).toHaveLength(0);
   });
 
-  it('does not fail completion when WS closes while session/new is in flight after resume is advertised', async () => {
+  it('fails instead of interrupting when WS closes before session id is available', async () => {
     wss.once('connection', (client: WsType) => {
       client.on('message', (raw) => {
         const msg = JSON.parse(raw.toString()) as { id: number; method: string };
@@ -287,12 +287,12 @@ describe('AcpSessionManager - interrupted on WS close', () => {
     const { cbs, calls } = makeCallbacks();
     const mgr = new AcpSessionManager({ url: `ws://localhost:${port}`, auto_approve: false }, cbs);
     mgr.dispatch('card-int-new', 'bob', 'do something', 'run-int-new');
-    await waitFor(() => calls.onInterrupted.length > 0);
+    await waitFor(() => calls.onComplete.length > 0);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    expect(calls.onInterrupted).toHaveLength(1);
-    expect(calls.onInterrupted[0]).toEqual(['card-int-new', 'run-int-new']);
-    expect(calls.onComplete).toHaveLength(0);
+    expect(calls.onInterrupted).toHaveLength(0);
+    expect(calls.onComplete).toHaveLength(1);
+    expect(calls.onComplete[0]).toEqual(['card-int-new', 'run-int-new', 'failed', 'ACP WebSocket closed unexpectedly']);
   });
 });
 

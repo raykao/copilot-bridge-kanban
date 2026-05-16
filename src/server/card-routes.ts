@@ -554,7 +554,11 @@ export function registerCardRoutes(
       return reply.status(409).send({ error: 'run has no stored session id' });
     }
 
-    const bot = card.agent_bot ?? 'unknown';
+    if (activeAcpRuns.has(run_id)) {
+      return reply.status(409).send({ error: 'reconnect already in progress' });
+    }
+
+    const bot = run.agent_name;
     const runMgr = mgr.fork(callbacks);
     activeAcpRuns.set(run_id, runMgr);
 
