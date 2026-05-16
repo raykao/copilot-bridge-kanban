@@ -162,14 +162,19 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
             } else if (event.type === 'message.completed') {
               const content = (event.data.content as string) ?? '';
               if (content !== '') {
-                const agentComment = addComment(db, {
-                  card_id: card.id,
-                  author_kind: 'agent',
-                  author_id: bot,
-                  content,
-                  run_id: run.id,
-                });
-                sseManager?.emit(card.id, 'comment.created', agentComment);
+                const dup = db.prepare(
+                  "SELECT 1 FROM card_comments WHERE run_id = ? AND author_kind = 'agent' AND content = ? LIMIT 1",
+                ).get(run.id, content);
+                if (!dup) {
+                  const agentComment = addComment(db, {
+                    card_id: card.id,
+                    author_kind: 'agent',
+                    author_id: bot,
+                    content,
+                    run_id: run.id,
+                  });
+                  sseManager?.emit(card.id, 'comment.created', agentComment);
+                }
               }
             }
           },
@@ -408,14 +413,19 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
               } else if (event.type === 'message.completed') {
                 const content = (event.data.content as string) ?? '';
                 if (content !== '') {
-                  const agentComment = addComment(db, {
-                    card_id: id,
-                    author_kind: 'agent',
-                    author_id: bot,
-                    content,
-                    run_id: run.id,
-                  });
-                  sseManager?.emit(id, 'comment.created', agentComment);
+                  const dup = db.prepare(
+                    "SELECT 1 FROM card_comments WHERE run_id = ? AND author_kind = 'agent' AND content = ? LIMIT 1",
+                  ).get(run.id, content);
+                  if (!dup) {
+                    const agentComment = addComment(db, {
+                      card_id: id,
+                      author_kind: 'agent',
+                      author_id: bot,
+                      content,
+                      run_id: run.id,
+                    });
+                    sseManager?.emit(id, 'comment.created', agentComment);
+                  }
                 }
               }
             },
@@ -595,14 +605,19 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
         } else if (event.type === 'message.completed') {
           const content = (event.data.content as string) ?? '';
           if (content !== '') {
-            const agentComment = addComment(db, {
-              card_id: card.id,
-              author_kind: 'agent',
-              author_id: bot,
-              content,
-              run_id: run.id,
-            });
-            sseManager?.emit(card.id, 'comment.created', agentComment);
+            const dup = db.prepare(
+              "SELECT 1 FROM card_comments WHERE run_id = ? AND author_kind = 'agent' AND content = ? LIMIT 1",
+            ).get(run.id, content);
+            if (!dup) {
+              const agentComment = addComment(db, {
+                card_id: card.id,
+                author_kind: 'agent',
+                author_id: bot,
+                content,
+                run_id: run.id,
+              });
+              sseManager?.emit(card.id, 'comment.created', agentComment);
+            }
           }
         }
       },
