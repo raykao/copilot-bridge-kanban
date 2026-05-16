@@ -40,6 +40,14 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
 
+  // Reset resuming state whenever the run changes or status transitions away from awaiting.
+  // This keeps "Processing approval..." visible until the React Query refetch confirms the
+  // status change, preventing the approval buttons from briefly re-appearing after submission.
+  useEffect(() => {
+    setIsResuming(false);
+    setResumeError(null);
+  }, [latestRun?.id, latestRun?.status]);
+
   useEffect(() => {
     if (latestRun?.status !== 'completed') {
       setShowCompleted(false);
@@ -88,9 +96,10 @@ export function RunStatusBar({ cardId, latestRun, streaming, onViewLive }: RunSt
       setResumeError(null);
       try {
         await api.runs.resume(cardId, awaitingRunId, decision);
+        // Keep isResuming=true on success; the useEffect above clears it when
+        // latestRun.status transitions away from 'awaiting'.
       } catch {
         setResumeError('Approval failed - please try again');
-      } finally {
         setIsResuming(false);
       }
     };
