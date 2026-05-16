@@ -153,7 +153,9 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
               sseManager?.emit(card.id, event.type, event.data);
             }
 
-            if (event.type === 'run.completed') {
+            if (event.type === 'run.in_progress') {
+              updateRun(db, run.id, { status: 'running' });
+            } else if (event.type === 'run.completed') {
               updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
             } else if (event.type === 'run.failed') {
               updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
@@ -399,7 +401,9 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
               sseManager?.emit(id, event.type, event.data);
             }
 
-            if (event.type === 'run.completed') {
+            if (event.type === 'run.in_progress') {
+              updateRun(db, run.id, { status: 'running' });
+            } else if (event.type === 'run.completed') {
               updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
             } else if (event.type === 'run.failed') {
               updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
@@ -583,7 +587,9 @@ export function registerCardRoutes(app: FastifyInstance, db: Database.Database, 
           sseManager?.emit(id, event.type, event.data);
         }
 
-        if (event.type === 'run.completed') {
+        if (event.type === 'run.in_progress') {
+          updateRun(db, run.id, { status: 'running' });
+        } else if (event.type === 'run.completed') {
           updateRun(db, run.id, { status: 'completed', finished_at: new Date().toISOString() });
         } else if (event.type === 'run.failed') {
           updateRun(db, run.id, { status: 'failed', finished_at: new Date().toISOString(), error: (event.data.error as string) ?? null });
