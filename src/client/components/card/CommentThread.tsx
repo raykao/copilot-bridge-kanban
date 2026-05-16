@@ -1,18 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Bot, SendHorizontal, Settings, User } from 'lucide-react';
+import { useEffect, useMemo, useRef } from 'react';
+import { Bot, Settings, User } from 'lucide-react';
 
-import { api } from '@/api/client';
 import type { CardComment } from '@/api/types';
 import { MarkdownContent } from '@/components/card/MarkdownContent';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 interface CommentThreadProps {
   cardId: string;
   comments: CardComment[];
+  extra?: React.ReactNode;
+  extraScrollKey?: unknown;
 }
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
@@ -68,10 +66,12 @@ function formatRelativeTime(timestamp: string): string {
   return relativeTimeFormatter.format(Math.round(diffMs / week), 'week');
 }
 
-export function CommentThread({ cardId, comments }: CommentThreadProps) {
-  const queryClient = useQueryClient();
-  const [content, setContent] = useState('');
-  const [submitError, setSubmitError] = useState<string | null>(null);
+export function CommentThread({
+  cardId: _cardId,
+  comments,
+  extra,
+  extraScrollKey,
+}: CommentThreadProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const sortedComments = useMemo(
@@ -84,95 +84,36 @@ export function CommentThread({ cardId, comments }: CommentThreadProps) {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [sortedComments]);
-
-  const addCommentMutation = useMutation({
-    mutationFn: (nextContent: string) => api.comments.add(cardId, nextContent),
-    onMutate: () => {
-      setSubmitError(null);
-    },
-    onSuccess: async () => {
-      setContent('');
-      await queryClient.invalidateQueries({ queryKey: ['cards', cardId] });
-    },
-    onError: () => {
-      setSubmitError('Unable to post the comment right now.');
-    },
-  });
-
-  async function handleSubmit(event?: React.FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-
-    const nextContent = content.trim();
-    if (!nextContent || addCommentMutation.isPending) {
-      return;
-    }
-
-    try {
-      await addCommentMutation.mutateAsync(nextContent);
-    } catch {
-      return;
-    }
-  }
+  }, [sortedComments, extraScrollKey]);
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-medium">Comments</h2>
-        <p className="text-sm text-muted-foreground">Discuss the card with markdown support and inline updates.</p>
-      </div>
+    <div className="space-y-3 rounded-xl border bg-muted/10 p-4">
+      {sortedComments.length ? (
+        sortedComments.map((comment) => {
+          const authorStyle = authorStyles[comment.author_kind];
+          const AuthorIcon = authorStyle.icon;
 
-      <div className="space-y-3 rounded-xl border bg-muted/10 p-4">
-        {sortedComments.length ? (
-          sortedComments.map((comment) => {
-            const authorStyle = authorStyles[comment.author_kind];
-            const AuthorIcon = authorStyle.icon;
-
-            return (
-              <article className="rounded-xl border bg-background p-4 shadow-sm" key={comment.id}>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className={cn('gap-1', authorStyle.className)} variant="secondary">
-                    <AuthorIcon className="size-3" />
-                    {authorStyle.label}
-                  </Badge>
-                  <span className="text-sm font-medium text-foreground">{comment.author_id}</span>
-                  <span className="text-xs text-muted-foreground">{formatRelativeTime(comment.created_at)}</span>
-                </div>
-                <MarkdownContent className="mt-3" content={comment.content} />
-              </article>
-            );
-          })
-        ) : (
-          <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-            No comments yet.
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
-
-      <form className="space-y-3 rounded-xl border bg-background p-4" onSubmit={(event) => void handleSubmit(event)}>
-        <Textarea
-          disabled={addCommentMutation.isPending}
-          onChange={(event) => setContent(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              void handleSubmit();
-            }
-          }}
-          placeholder="Write a comment in markdown..."
-          rows={4}
-          value={content}
-        />
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs text-muted-foreground">Press Enter to send, Shift+Enter for new line.</div>
-          <Button disabled={addCommentMutation.isPending || !content.trim()} type="submit">
-            <SendHorizontal />
-            {addCommentMutation.isPending ? 'Sending...' : 'Send'}
-          </Button>
+          return (
+            <article className="rounded-xl border bg-background p-4 shadow-sm" key={comment.id}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={cn('gap-1', authorStyle.className)} variant="secondary">
+                  <AuthorIcon className="size-3" />
+                  {authorStyle.label}
+                </Badge>
+                <span className="text-sm font-medium text-foreground">{comment.author_id}</span>
+                <span className="text-xs text-muted-foreground">{formatRelativeTime(comment.created_at)}</span>
+              </div>
+              <MarkdownContent className="mt-3" content={comment.content} />
+            </article>
+          );
+        })
+      ) : (
+        <div className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+          No comments yet.
         </div>
-        {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
-      </form>
+      )}
+      {extra}
+      <div ref={endRef} />
     </div>
   );
 }

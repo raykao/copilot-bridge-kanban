@@ -9,6 +9,7 @@ import { LiveUpdatesBanner } from "@/components/LiveUpdatesBanner";
 import { RunDetailDrawer } from "@/components/RunDetailDrawer";
 import { RunStatusBar } from "@/components/RunStatusBar";
 import { CheckpointList } from "@/components/card/CheckpointList";
+import { CommentInput } from "@/components/card/CommentInput";
 import { CommentThread } from "@/components/card/CommentThread";
 import { LabelEditor } from "@/components/card/LabelEditor";
 import { StreamingMessage } from "@/components/card/StreamingMessage";
@@ -223,9 +224,9 @@ export function CardDetailPage({
 
   return (
     <>
-      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
-        <SurfaceCard className="min-h-[calc(100vh-10rem)] min-w-0 flex-1">
-          <CardHeader className="gap-4 border-b">
+      <div className="flex h-full flex-col gap-4 overflow-hidden lg:flex-row">
+        <SurfaceCard className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <CardHeader className="flex-none gap-4 border-b">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1 space-y-2">
                 {isEditingTitle ? (
@@ -267,50 +268,43 @@ export function CardDetailPage({
               </div>
               <Badge variant="outline">{formatStatus(card.status)}</Badge>
             </div>
+            <div className="min-h-16 whitespace-pre-wrap break-words rounded-xl border bg-muted/20 p-3 text-sm text-foreground">
+              {card.description?.trim() ? card.description : "No description yet."}
+            </div>
+            <LiveUpdatesBanner
+              onRetry={streamingState.retry}
+              status={streamingState.connectionStatus}
+            />
           </CardHeader>
 
-          <CardContent className="space-y-6 py-4">
-            <section className="space-y-3">
-              <div>
-                <h2 className="text-lg font-medium">Description</h2>
-                <p className="text-sm text-muted-foreground">
-                  Plain text for now. Markdown rendering ships in f13.
-                </p>
-              </div>
-              <div className="min-h-32 whitespace-pre-wrap break-words rounded-xl border bg-muted/20 p-4 text-sm text-foreground">
-                {card.description?.trim()
-                  ? card.description
-                  : "No description yet."}
-              </div>
-            </section>
-
-            <Separator />
-
-            <section className="space-y-3">
-              <LiveUpdatesBanner
-                onRetry={streamingState.retry}
-                status={streamingState.connectionStatus}
-              />
-              <CommentThread cardId={card.id} comments={comments} />
-            </section>
-
-            <section className="space-y-3">
-              <StreamingMessage streamingState={streamingState} />
-              <RunStatusBar
-                cardId={card.id}
-                latestRun={latestRun}
-                streaming={streamingState}
-                onViewLive={(runId) => {
-                  setViewRunId(runId);
-                  setDrawerOpen(true);
-                }}
-              />
-            </section>
+          <CardContent className="flex-1 overflow-y-auto py-4">
+            <CommentThread
+              cardId={card.id}
+              comments={comments}
+              extra={
+                <>
+                  <StreamingMessage streamingState={streamingState} />
+                  <RunStatusBar
+                    cardId={card.id}
+                    latestRun={latestRun}
+                    streaming={streamingState}
+                    onViewLive={(runId) => {
+                      setViewRunId(runId);
+                      setDrawerOpen(true);
+                    }}
+                  />
+                </>
+              }
+              extraScrollKey={`${streamingState.isStreaming}-${streamingState.content.length}-${latestRun?.status}`}
+            />
           </CardContent>
+          <div className="flex-none border-t px-6 py-4">
+            <CommentInput cardId={card.id} />
+          </div>
         </SurfaceCard>
 
-        <SurfaceCard className="w-full shrink-0 lg:sticky lg:top-4 lg:w-80">
-          <CardHeader>
+        <SurfaceCard className="flex h-full w-full shrink-0 flex-col overflow-y-hidden hover:overflow-y-auto lg:w-80">
+          <CardHeader className="flex-none">
             <CardTitle>Details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6 pb-4">
