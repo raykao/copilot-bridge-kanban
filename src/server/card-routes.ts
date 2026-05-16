@@ -61,6 +61,10 @@ export function buildSessionCallbacks(db: Database.Database, sseManager?: SseMan
     },
     onAgentMessage: (cardId, kanbanRunId, bot, content) => {
       if (!content) return;
+      const dup = db.prepare(
+        "SELECT 1 FROM card_comments WHERE run_id = ? AND author_kind = 'agent' AND content = ? LIMIT 1",
+      ).get(kanbanRunId, content);
+      if (dup) return;
       const agentComment = addComment(db, {
         card_id: cardId,
         author_kind: 'agent',
