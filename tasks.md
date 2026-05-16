@@ -666,3 +666,477 @@ npx vitest run                  # exits 0
 6. Commit and push
 
 **Done criteria:** all commands above exit 0, grep returns empty.
+
+---
+
+# copilot-a8g - Generic ACP Provider Abstraction
+
+Feature: allow kanban to discover and dispatch to any A2A-compatible HTTP+JSON agent,
+not just copilot-bridge. Implements the AgentProvider interface described in
+`docs/acp-provider-architecture.md`.
+
+All tasks must pass `npm run build` (tsc) before being considered done.
+Validation commands are listed per task.
+
+---
+
+## p0 - Add api_key column to agents table (migration 005)
+
+**Goal:** Agents registered in the DB need a per-agent API key for auth when
+kanban calls their endpoints. Add `api_key TEXT` (nullable) to the `agents` table.
+
+**Files to read:**
+- `src/server/migrations/004-add-acp-session-id.ts` - copy this file's structure exactly
+- `src/server/migrations/index.ts` - register the new migration here
+- `src/server/agents-db.ts` - update `Agent` interface, `rowToAgent`, `createAgent`, `updateAgent`
+- `src/server/agent-admin-routes.ts` - update POST and PATCH body handling for `api_key`
+
+**Files to create:**
+- `src/server/migrations/005-agents-api-key.ts`
+
+**Files to modify:**
+- `src/server/migrations/index.ts`
+- `src/server/agents-db.ts`
+- `src/server/agent-admin-routes.ts`
+
+**Migration spec:**
+```ts
+// 005-agents-api-key.ts
+const migration: Migration = {
+  version: 5,
+  name: 'agents-api-key',
+  up: (db: Database.Database) => {
+    const cols = (db.prepare('PRAGMA table_info(agents)').all() as Array<{ name: string }>).map(r => r.name);
+    if (!cols.includes('api_key')) {
+      db.exec('ALTER TABLE agents ADD COLUMN api_key TEXT');
+    }
+  },
+};
+```
+
+**agents-db.ts changes:**
+- Add `api_key: string | null` to `Agent` interface
+- Add `api_key?: string | null` to `NewAgent` interface
+- In `rowToAgent`: add `api_key: (row.api_key as string | null) ?? null`
+- In `createAgent`: add `api_key` to INSERT (column list and `.run()` params), use `input.api_key ?? null`
+- In `updateAgent`: add `if ('api_key' in patch) { sets.push('api_key = ?'); params.push(patch.api_key ?? null); }`
+
+**agent-admin-routes.ts changes:**
+- POST: extract `api_key: typeof body.api_key === 'string' ? body.api_key : undefined` and pass to `NewAgent`
+- PATCH: add `if ('api_key' in body) patch.api_key = typeof body.api_key === 'string' ? body.api_key : null`
+
+**Done criteria:**
+- `npx tsc --noEmit` exits 0
+- `npm test -- --testPathPattern=migrations` passes
+
+**ESCALATION RULE:** If any requirement is ambiguous or covers a situation not
+described here, STOP. Ask the orchestrator a specific question before writing code.
+
+---
+
+## p1 - Define AgentProvider interface and shared types
+
+**Goal:** Create the TypeScript interface that all providers implement. This is the
+contract that `GenericAcpProvider` and `CopilotBridgeProvider` fulfil.
+
+**Files to read:**
+- `src/server/card-session-manager.ts` - import `DispatchCallbacks` from here
+- `src/client/api/types.ts` - reference for `AgentCard` shape (do NOT import from client)
+- `docs/acp-provider-architecture.md` - the authoritative design spec
+
+**Files to create:**
+- `src/server/providers/types.ts`
+
+**Exact content of `src/server/providers/types.ts`:**
+```ts
+import type { DispatchCallbacks } from '../card-session-manager.js';
+
+export type ProviderType = 'generic-acp' | 'copilot-bridge';
+
+export interface ProviderAgentCard {
+  name: string;
+  description: string;
+  version: string;
+  supportedInterfaces: Array<{
+    url: string;
+    protocolBinding: string;
+    protocolVersion: string;
+  }>;
+  capabilities: {
+    streaming: boolean;
+    pushNotifications: boolean;
+  };
+  defaultInputModes: string[];
+  defaultOutputModes: string[];
+  skills: Array<{
+    id: string;
+    name: string;
+    description: string;
+    tags: string[];
+  }>;
+  // Kanban-added fields (not in A2A spec)
+  providerType: ProviderType;
+  providerBaseUrl: string;
+}
+
+export interface AgentProvider {
+  readonly id: string;        // DB agents row id
+  readonly type: ProviderType;
+  readonly baseUrl: string;
+
+  /**
+   * Return all agents this provider exposes.
+   * Standard: GET <baseUrl>/.well-known/agent-card.json -> single card.
+   * Providers MAY override for multi-agent discovery.
+   */
+  discover(): Promise<ProviderAgentCard[]>;
+
+  /**
+   * Start a new run for the named agent.
+   * Results are delivered via callbacks (same contract as CardSessionManager.dispatch).
+   */
+  dispatch(
+    agentName: string,
+    input: string,
+    cardId: string,
+    kanbanRunId: string,
+    callbacks: DispatchCallbacks,
+  ): void;
+
+  /**
+   * Resume a paused run (e.g. after permission approval).
+   */
+  resumeRun(
+    runId: string,
+    acpDecision: string,
+    callbacks: DispatchCallbacks,
+  ): void;
+}
+```
+
+**Done criteria:**
+- `npx tsc --noEmit` exits 0
+- File exists at `src/server/providers/types.ts`
+
+**ESCALATION RULE:** If any requirement is ambiguous or covers a situation not
+described here, STOP. Ask the orchestrator a specific question before writing code.
+
+---
+
+## p2 - Implement GenericAcpProvider
+
+**Goal:** Standard A2A HTTP+JSON provider. Discovers a single agent via
+`.well-known/agent-card.json` and dispatches via `POST /agents/:name/message:stream`.
+
+**Files to read:**
+- `src/server/providers/types.ts` (created in p1) - interface to implement
+- `src/server/bridge-stream.ts` - reuse `subscribeToBridgeRunStream` for dispatch;
+  read its `BridgeStreamOptions` interface carefully (lines 1-35)
+- `src/server/agents-db.ts` - `Agent` type for constructor input
+
+**Files to create:**
+- `src/server/providers/generic-acp.ts`
+
+**Exact class signature:**
+```ts
+export class GenericAcpProvider implements AgentProvider {
+  readonly type: ProviderType = 'generic-acp';
+
+  constructor(
+    readonly id: string,
+    readonly baseUrl: string,
+    private readonly apiKey: string | null,
+  ) {}
+}
+```
+
+**`discover()` implementation:**
+- Build URL: `${this.baseUrl.replace(/\/+$/, '')}/.well-known/agent-card.json`
+- Headers: `Authorization: Bearer ${this.apiKey}` if `this.apiKey` is non-null
+- Fetch with 10_000ms timeout using `AbortController`
+- If response not ok: throw `new Error('GenericAcpProvider discover failed: ' + res.status)`
+- Parse JSON as `unknown`, cast to `ProviderAgentCard`
+- Return `[{ ...card, providerType: 'generic-acp', providerBaseUrl: this.baseUrl }]`
+
+**`dispatch()` implementation:**
+- Call `subscribeToBridgeRunStream` from `../bridge-stream.js`
+- Map parameters: `bridgeApiUrl = this.baseUrl`, `bridgeApiKey = this.apiKey ?? ''`,
+  `bot = agentName`, `prompt = input`, `cardId = cardId`, `runId = kanbanRunId`
+- `onReady`: call `callbacks.onRunCreated(kanbanRunId, bridgeRunId)`
+- `onEvent`: call `callbacks.onEvent(cardId, event.type, event.data)`
+- `onClose`: no-op (completion handled by onEvent run.completed/run.failed)
+- `onError`: call `callbacks.onComplete(cardId, kanbanRunId, 'failed', ...)` with status+body
+- Map `event.type` to callbacks exactly as `CardSessionManager.handleEvent` does
+  (copy the if-chain from lines 138-178 of `card-session-manager.ts`)
+- Store the cancel function returned by `subscribeToBridgeRunStream` in a private
+  `Map<string, () => void>` keyed by `kanbanRunId` for future cancellation
+
+**`resumeRun()` implementation:**
+- Log a warning: `'GenericAcpProvider.resumeRun not yet implemented'`
+- Call `callbacks.onComplete(runId, runId, 'failed', 'resumeRun not supported')`
+- (Resume is deferred - note clearly in a TODO comment)
+
+**Done criteria:**
+- `npx tsc --noEmit` exits 0
+- File exists at `src/server/providers/generic-acp.ts`
+
+**ESCALATION RULE:** If any requirement is ambiguous or covers a situation not
+described here, STOP. Ask the orchestrator a specific question before writing code.
+
+---
+
+## p3 - Implement CopilotBridgeProvider
+
+**Goal:** Wraps the existing `CardSessionManager` so the bridge participates in the
+`AgentProvider` interface. Overrides `discover()` to use the bridge catalog endpoint.
+
+**Files to read:**
+- `src/server/providers/types.ts` - interface to implement
+- `src/server/card-session-manager.ts` - delegate dispatch and resumeRun to an instance
+- `src/server/config.ts` - `AppConfig` shape for constructor input
+
+**Files to create:**
+- `src/server/providers/copilot-bridge.ts`
+
+**Exact class signature:**
+```ts
+import { CardSessionManager } from '../card-session-manager.js';
+import type { AppConfig } from '../config.js';
+import type { DispatchCallbacks } from '../card-session-manager.js';
+import type { AgentProvider, ProviderAgentCard, ProviderType } from './types.js';
+
+export class CopilotBridgeProvider implements AgentProvider {
+  readonly type: ProviderType = 'copilot-bridge';
+  readonly id: string;
+  readonly baseUrl: string;
+  private readonly manager: CardSessionManager;
+
+  constructor(id: string, config: AppConfig, callbacks: DispatchCallbacks) {
+    this.id = id;
+    this.baseUrl = config.bridgeApiUrl;
+    this.manager = new CardSessionManager(config, callbacks);
+  }
+}
+```
+
+**`discover()` implementation:**
+- DEVIATION from standard - see `docs/acp-provider-architecture.md`
+- URL: `${this.baseUrl}/v1/agents/cards`
+- Headers: `Authorization: Bearer ${config.bridgeApiKey}` (store apiKey in constructor)
+- If response not ok: throw `new Error('CopilotBridgeProvider discover failed: ' + res.status)`
+- Parse body as `{ cards: ProviderAgentCard[] }`
+- Return cards with `providerType: 'copilot-bridge'` and `providerBaseUrl: this.baseUrl` added
+  to each card
+
+**`dispatch()` implementation:**
+- DEVIATION from standard - see `docs/acp-provider-architecture.md`
+- Delegate directly: `this.manager.dispatch(cardId, agentName, input, kanbanRunId)`
+- Note: `DispatchCallbacks` passed to constructor is used by `CardSessionManager` internally
+
+**`resumeRun()` implementation:**
+- No direct equivalent in `CardSessionManager` for ACP decision-based resume
+- Log warning and no-op for now: `console.warn('CopilotBridgeProvider.resumeRun: use card-routes resume endpoint instead')`
+
+**Done criteria:**
+- `npx tsc --noEmit` exits 0
+- File exists at `src/server/providers/copilot-bridge.ts`
+
+**ESCALATION RULE:** If any requirement is ambiguous or covers a situation not
+described here, STOP. Ask the orchestrator a specific question before writing code.
+
+---
+
+## p4 - Create ProviderRegistry and wire into server startup
+
+**Goal:** A registry that maps DB agent rows to `AgentProvider` instances and
+exposes a `fanoutDiscover()` method returning all agent cards from all providers.
+Replace the hardcoded `cardSessionManager` + `acpManagers` with registry-based lookup.
+
+**Files to read:**
+- `src/server/providers/types.ts` - AgentProvider, ProviderAgentCard
+- `src/server/providers/generic-acp.ts` (p2)
+- `src/server/providers/copilot-bridge.ts` (p3)
+- `src/server/agents-db.ts` - `Agent`, `listAgents`
+- `src/server/config.ts` - `AppConfig`
+- `src/server/index.ts` - where to wire the registry at startup
+- `src/server/card-routes.ts` (lines 1-60) - how cardSessionManager and acpManagers are
+  currently used in `registerCardRoutes` signature
+
+**Files to create:**
+- `src/server/providers/registry.ts`
+
+**Files to modify:**
+- `src/server/index.ts`
+
+**Exact class in `src/server/providers/registry.ts`:**
+```ts
+export class ProviderRegistry {
+  private providers = new Map<string, AgentProvider>();
+
+  register(provider: AgentProvider): void {
+    this.providers.set(provider.id, provider);
+  }
+
+  get(id: string): AgentProvider | undefined {
+    return this.providers.get(id);
+  }
+
+  getByName(agentName: string): AgentProvider | undefined {
+    // Returns the first provider that advertised an agent with this name
+    // after the last fanoutDiscover() call. Uses a secondary name->id index.
+  }
+
+  async fanoutDiscover(): Promise<ProviderAgentCard[]> {
+    // Call discover() on all registered providers in parallel.
+    // Catch per-provider errors, log them, skip that provider's cards.
+    // Update internal name->providerId index from results.
+    // Return flat merged array.
+  }
+}
+```
+
+**`index.ts` changes:**
+- Import `ProviderRegistry`, `GenericAcpProvider`, `CopilotBridgeProvider`
+- After `initializeSchema(db)`:
+  1. Create `const registry = new ProviderRegistry()`
+  2. Create a `'bootstrap'` bridge provider ID (use `crypto.randomUUID()` or a fixed
+     constant `'copilot-bridge-default'`)
+  3. Instantiate `CopilotBridgeProvider('copilot-bridge-default', config, callbacks)`
+     and `registry.register(...)` it
+  4. For each `agent` in `listAgents(db)` where `agent.protocol === 'generic-acp'`:
+     instantiate `GenericAcpProvider(agent.id, agent.url, agent.api_key)` and register
+  5. Remove the old `acpManagers` Map construction (AcpSessionManager WS agents are
+     separate and remain unchanged - do NOT remove them)
+- Pass `registry` into `registerCardRoutes` as an additional argument
+
+**Done criteria:**
+- `npx tsc --noEmit` exits 0
+- `npm test -- --testPathPattern=server` passes
+
+**ESCALATION RULE:** If any requirement is ambiguous or covers a situation not
+described here, STOP. Ask the orchestrator a specific question before writing code.
+
+---
+
+## p5 - Replace /api/agents/cards proxy with registry fanout
+
+**Goal:** `GET /api/agents/cards` currently proxies to the bridge catalog. Replace it
+with a call to `registry.fanoutDiscover()` so all registered providers contribute agents.
+
+**Files to read:**
+- `src/server/agents.ts` - current implementation to replace
+- `src/server/providers/registry.ts` (p4) - `fanoutDiscover()` return type
+- `src/server/index.ts` - how `registry` is passed to routes
+
+**Files to modify:**
+- `src/server/agents.ts`
+- `src/server/index.ts` - update `registerAgentRoutes` call signature
+
+**`registerAgentRoutes` new signature:**
+```ts
+export function registerAgentRoutes(
+  app: FastifyInstance,
+  config: AppConfig,
+  registry: ProviderRegistry,
+): void
+```
+
+**`GET /api/agents/cards` new implementation:**
+```ts
+app.get('/api/agents/cards', async (_request, reply) => {
+  try {
+    const cards = await registry.fanoutDiscover();
+    return reply.send({ cards });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Discovery error';
+    return reply.status(502).send({ error: 'Agent discovery failed', detail: message });
+  }
+});
+```
+
+**Keep unchanged:** `GET /api/agents` and `GET /api/agents/:name` routes (still proxy
+to bridge - they serve the admin UI use case and are not part of this task).
+
+**Done criteria:**
+- `npx tsc --noEmit` exits 0
+- `npm test -- --testPathPattern=agents` passes
+
+**ESCALATION RULE:** If any requirement is ambiguous or covers a situation not
+described here, STOP. Ask the orchestrator a specific question before writing code.
+
+---
+
+## p6 - Settings UI: agent provider management page
+
+**Goal:** Add a Settings page in the client where users can view, add, edit, and
+delete agent providers. Uses the existing `/api/admin/agents` CRUD routes.
+
+**Files to read:**
+- `src/server/agent-admin-routes.ts` - available endpoints and response shapes
+- `src/client/api/client.ts` - how to add new API methods (copy `cards` or `agents` section pattern)
+- `src/client/api/types.ts` - add `AdminAgent` type here
+- `src/client/pages/BoardPage.tsx` - copy page shell pattern (useQuery, error state, skeleton)
+- `src/client/components/ui/` - available: `button.tsx`, `input.tsx` (check these exist)
+- `src/client/App.tsx` or router file - where to register the new route
+
+**Files to create:**
+- `src/client/pages/SettingsPage.tsx`
+
+**Files to modify:**
+- `src/client/api/types.ts` - add `AdminAgent` interface
+- `src/client/api/client.ts` - add `api.admin.agents` methods
+- Router/App file - add `/settings` route
+
+**`AdminAgent` type to add to `src/client/api/types.ts`:**
+```ts
+export interface AdminAgent {
+  id: string;
+  name: string;
+  protocol: string;   // 'generic-acp' | 'copilot-bridge' | 'acp'
+  url: string;
+  api_key?: string | null;
+  auto_approve: boolean;
+  created_at: string;
+}
+```
+
+**`api.admin.agents` methods to add to `src/client/api/client.ts`:**
+```ts
+admin: {
+  agents: {
+    list: (): Promise<{ agents: AdminAgent[] }> =>
+      request('/api/admin/agents'),
+    create: (body: { name: string; protocol: string; url: string; api_key?: string; auto_approve?: boolean }): Promise<{ agent: AdminAgent }> =>
+      request('/api/admin/agents', { method: 'POST', body }),
+    update: (id: string, patch: Partial<Pick<AdminAgent, 'name' | 'protocol' | 'url' | 'api_key' | 'auto_approve'>>): Promise<{ agent: AdminAgent }> =>
+      request(`/api/admin/agents/${id}`, { method: 'PATCH', body: patch }),
+    delete: (id: string): Promise<void> =>
+      request(`/api/admin/agents/${id}`, { method: 'DELETE' }),
+  },
+},
+```
+
+**`SettingsPage.tsx` required elements:**
+- Page title: "Settings" with subtitle "Manage agent providers."
+- Section header: "Agent Providers"
+- Table with columns: Name, Type, URL, Auto-approve, Actions
+- "Add Provider" button that opens an inline form (not a modal) below the table
+- Add form fields: Name (text input), Type (select: `generic-acp` | `copilot-bridge`),
+  URL (text input), API Key (text input, type="password"), Auto-approve (checkbox)
+- Delete button per row with `window.confirm('Delete agent <name>?')` guard
+- Use `useQuery` for list, `useMutation` for create/update/delete (same pattern as `BoardPage.tsx`)
+- Error and loading states following the pattern in `BoardPage.tsx`
+
+**Router registration:**
+- Find the existing router file (likely `App.tsx` or a `routes.tsx`)
+- Add `<Route path="/settings" element={<SettingsPage />} />`
+- Add a "Settings" link in the sidebar/nav (find the nav component and add it alongside existing links)
+
+**Done criteria:**
+- `npx tsc --noEmit` exits 0
+- Page renders at `/settings` without console errors
+- Can add and delete an agent via the UI (manual verification)
+
+**ESCALATION RULE:** If any requirement is ambiguous or covers a situation not
+described here, STOP. Ask the orchestrator a specific question before writing code.
+
