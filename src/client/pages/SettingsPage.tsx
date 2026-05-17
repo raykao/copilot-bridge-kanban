@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { api, getErrorMessage } from '@/api/client';
-import type { AdminAgent } from '@/api/types';
+import type { AdminAgent, ProviderConnectionStatus, ProviderStatusEntry } from '@/api/types';
 import { ErrorState } from '@/components/ErrorState';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -22,6 +23,7 @@ import {
 } from '@/components/ui/table';
 
 const adminAgentsQueryKey = ['admin', 'agents'] as const;
+const providerStatusQueryKey = ['agents', 'provider-status'] as const;
 const providerTypes = ['generic-acp', 'copilot-bridge'] as const;
 type ProviderType = (typeof providerTypes)[number];
 
@@ -89,36 +91,84 @@ function SettingsPageSkeleton() {
   );
 }
 
+function StatusBadge({ status }: { status?: ProviderConnectionStatus }) {
+  if (!status || status === 'discovering') {
+    return <Badge variant="secondary">Connecting...</Badge>;
+  }
+  if (status === 'connected') {
+    return <Badge variant="default" className="bg-green-600 hover:bg-green-600">Online</Badge>;
+  }
+  return <Badge variant="destructive">Offline</Badge>;
+}
+
 function ProviderRow({
   agent,
   deleting,
   onDelete,
+  statusEntry,
 }: {
   agent: AdminAgent;
   deleting: boolean;
   onDelete: (agent: AdminAgent) => void;
+  statusEntry?: ProviderStatusEntry;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasAgents = (statusEntry?.agents.length ?? 0) > 0;
+
   return (
-    <TableRow>
-      <TableCell className="font-medium">{agent.name ?? agent.url}</TableCell>
-      <TableCell>{formatProviderType(agent.protocol)}</TableCell>
-      <TableCell className="max-w-md truncate" title={agent.url}>
-        {agent.url}
-      </TableCell>
-      <TableCell>{agent.auto_approve ? 'Yes' : 'No'}</TableCell>
-      <TableCell>
-        <Button
-          disabled={deleting}
-          onClick={() => onDelete(agent)}
-          size="sm"
-          type="button"
-          variant="destructive"
-        >
-          <Trash2 />
-          Delete
-        </Button>
-      </TableCell>
-    </TableRow>
+    <>
+      <TableRow>
+        <TableCell className="font-medium">{agent.name ?? agent.url}</TableCell>
+        <TableCell>{formatProviderType(agent.protocol)}</TableCell>
+        <TableCell className="max-w-md truncate" title={agent.url}>
+          {agent.url}
+        </TableCell>
+        <TableCell>
+          <StatusBadge status={statusEntry?.status} />
+        </TableCell>
+        <TableCell>{agent.auto_approve ? 'Yes' : 'No'}</TableCell>
+        <TableCell>
+          <div className="flex gap-2">
+            {hasAgents && (
+              <Button
+                onClick={() => setExpanded((e) => !e)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </Button>
+            )}
+            <Button
+              disabled={deleting}
+              onClick={() => onDelete(agent)}
+              size="sm"
+              type="button"
+              variant="destructive"
+            >
+              <Trash2 />
+              Delete
+            </Button>
+          </div>
+        </TableCell>
+      </TableRow>
+      {expanded && hasAgents && (
+        <TableRow>
+          <TableCell colSpan={6} className="bg-muted/30 py-2 pl-8">
+            <ul className="space-y-1 text-sm">
+              {statusEntry!.agents.map((a) => (
+                <li key={a.name} className="flex items-center gap-2">
+                  <span className="font-medium">{a.name}</span>
+                  {a.description && (
+                    <span className="text-muted-foreground">{a.description}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   );
 }
 
@@ -241,6 +291,21 @@ export function SettingsPage() {
     queryFn: () => api.admin.agents.list(),
   });
 
+  const statusQuery = useQuery({
+    queryKey: providerStatusQueryKey,
+    queryFn: () => api.agents.providerStatus(),
+    refetchInterval: 30_000,
+  });
+
+  useEffect(() => {
+    const es = new EventSource('/api/sse/system');
+    es.addEventListener('provider.status_changed', () => {
+      void queryClient.invalidateQueries({ queryKey: providerStatusQueryKey });
+    });
+    es.onerror = () => { /* silent - reconnects automatically */ };
+    return () => { es.close(); };
+  }, [queryClient]);
+
   const createMutation = useMutation({
     mutationFn: (form: ProviderFormState) => {
       const apiKey = form.apiKey.trim();
@@ -324,6 +389,7 @@ export function SettingsPage() {
                 <TableHead>Label</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>URL</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Auto-approve</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -336,11 +402,12 @@ export function SettingsPage() {
                     deleting={deleteMutation.isPending}
                     key={agent.id}
                     onDelete={handleDelete}
+                    statusEntry={statusQuery.data?.providers.find((p) => p.id === agent.id)}
                   />
                 ))
               ) : (
                 <TableRow>
-                  <TableCell className="py-10 text-center text-muted-foreground" colSpan={5}>
+                  <TableCell className="py-10 text-center text-muted-foreground" colSpan={6}>
                     No agent providers configured yet.
                   </TableCell>
                 </TableRow>

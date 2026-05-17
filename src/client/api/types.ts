@@ -69,6 +69,25 @@ export interface AdminAgent {
   created_at: string;
 }
 
+export interface ProviderStatusAgent {
+  name: string;
+  description: string;
+  version: string;
+}
+
+export type ProviderConnectionStatus = 'discovering' | 'connected' | 'disconnected';
+
+export interface ProviderStatusEntry {
+  id: string;
+  label: string | null;
+  protocol: string;
+  url: string;
+  status: ProviderConnectionStatus;
+  agents: ProviderStatusAgent[];
+  lastError: string | null;
+  lastDiscoveredAt: string | null;
+}
+
 export interface Card {
   id: string;
   type: "work" | "chat";

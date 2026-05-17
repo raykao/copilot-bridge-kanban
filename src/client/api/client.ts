@@ -11,6 +11,7 @@ import type {
   CardFilter,
   Checkpoint,
   NewCard,
+  ProviderStatusEntry,
   ResumeDecision,
   Run,
   UserPreferences,
@@ -168,6 +169,10 @@ const agents = {
 
   cards(): Promise<{ cards: AgentCard[] }> {
     return apiFetch<{ cards: AgentCard[] }>('/api/agents/cards');
+  },
+
+  providerStatus(): Promise<{ providers: ProviderStatusEntry[] }> {
+    return apiFetch<{ providers: ProviderStatusEntry[] }>('/api/agents/provider-status');
   },
 
   get(name: string): Promise<Agent> {
