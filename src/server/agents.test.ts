@@ -6,6 +6,7 @@ import { registerAgentRoutes } from './agents.js';
 import type { AppConfig } from './config.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { createServer } from './server.js';
+import { ProviderRegistry } from './providers/registry.js';
 
 const config: AppConfig = {
   port: 3000,
@@ -38,7 +39,7 @@ async function createAgentApp(): Promise<{
 
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
-  registerAgentRoutes(server, config);
+  registerAgentRoutes(server, config, new ProviderRegistry());
 
   const user = await createUser(db, 'ray', 'secret-password');
   const sessionId = createSession(db, user.id);

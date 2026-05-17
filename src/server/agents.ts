@@ -1,7 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from './config.js';
+import type { ProviderRegistry } from './providers/registry.js';
 
-export function registerAgentRoutes(app: FastifyInstance, config: AppConfig): void {
+export function registerAgentRoutes(
+  app: FastifyInstance,
+  config: AppConfig,
+  registry: ProviderRegistry,
+): void {
   app.get('/api/agents', async (request, reply) => {
     try {
       const res = await fetch(`${config.bridgeApiUrl}/v1/agents`, {
@@ -18,19 +23,13 @@ export function registerAgentRoutes(app: FastifyInstance, config: AppConfig): vo
     }
   });
 
-  app.get('/api/agents/cards', async (request, reply) => {
+  app.get('/api/agents/cards', async (_request, reply) => {
     try {
-      const res = await fetch(`${config.bridgeApiUrl}/v1/agents/cards`, {
-        headers: { Authorization: `Bearer ${config.bridgeApiKey}` },
-      });
-      const body = await res.text();
-      return reply.status(res.status)
-        .header('content-type', res.headers.get('content-type') ?? 'application/json')
-        .send(body);
+      const cards = await registry.fanoutDiscover();
+      return reply.send({ cards });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Bridge request error';
-      request.log.error({ err }, 'agent cards bridge request error');
-      return reply.status(502).send({ error: 'Bridge unavailable', detail: message });
+      const message = err instanceof Error ? err.message : 'Discovery error';
+      return reply.status(502).send({ error: 'Agent discovery failed', detail: message });
     }
   });
 

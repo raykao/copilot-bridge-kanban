@@ -6,6 +6,8 @@ import { registerAgentRoutes } from './agents.js';
 import type { AppConfig } from './config.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { createServer } from './server.js';
+import { ProviderRegistry } from './providers/registry.js';
+import type { AgentProvider, ProviderAgentCard } from './providers/types.js';
 
 const config: AppConfig = {
   port: 3000,
@@ -19,6 +21,31 @@ const config: AppConfig = {
 
 const apps: Array<{ db: Database.Database; server: FastifyInstance }> = [];
 
+const card: ProviderAgentCard = {
+  name: 'bob',
+  description: 'Bob agent',
+  version: '1.0.0',
+  supportedInterfaces: [{
+    url: 'http://provider.example/agents/bob',
+    protocolBinding: 'jsonrpc',
+    protocolVersion: '1.0',
+  }],
+  capabilities: {
+    streaming: true,
+    pushNotifications: false,
+  },
+  defaultInputModes: ['text/plain'],
+  defaultOutputModes: ['text/plain'],
+  skills: [{
+    id: 'chat',
+    name: 'Chat',
+    description: 'Chat with Bob',
+    tags: ['chat'],
+  }],
+  providerType: 'generic-acp',
+  providerBaseUrl: 'http://provider.example',
+};
+
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -29,7 +56,21 @@ afterEach(async () => {
   }
 });
 
-async function createAgentApp(): Promise<{
+function createRegistry(discover: () => Promise<ProviderAgentCard[]>): ProviderRegistry {
+  const registry = new ProviderRegistry();
+  const provider: AgentProvider = {
+    id: 'test-provider',
+    type: 'generic-acp',
+    baseUrl: 'http://provider.example',
+    discover,
+    dispatch: () => undefined,
+    resumeRun: () => undefined,
+  };
+  registry.register(provider);
+  return registry;
+}
+
+async function createAgentApp(registry: ProviderRegistry = createRegistry(async () => [])): Promise<{
   server: FastifyInstance;
   sessionId: string;
 }> {
@@ -38,7 +79,7 @@ async function createAgentApp(): Promise<{
 
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
-  registerAgentRoutes(server, config);
+  registerAgentRoutes(server, config, registry);
 
   const user = await createUser(db, 'ray', 'secret-password');
   const sessionId = createSession(db, user.id);
@@ -48,16 +89,11 @@ async function createAgentApp(): Promise<{
 }
 
 describe('registerAgentRoutes agent cards', () => {
-  it('proxies to bridge /v1/agents/cards with bearer token', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ cards: [] }), {
-      status: 200,
-      headers: {
-        'content-type': 'application/json',
-      },
-    }));
-    vi.stubGlobal('fetch', fetchMock);
+  it('returns cards from registry fanout discovery', async () => {
+    const discover = vi.fn(async () => [card]);
+    vi.stubGlobal('fetch', vi.fn());
 
-    const { server, sessionId } = await createAgentApp();
+    const { server, sessionId } = await createAgentApp(createRegistry(discover));
 
     const response = await server.inject({
       method: 'GET',
@@ -68,27 +104,15 @@ describe('registerAgentRoutes agent cards', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith(
-      'http://localhost:7878/v1/agents/cards',
-      expect.objectContaining({
-        headers: {
-          Authorization: 'Bearer test-key',
-        },
-      }),
-    );
+    expect(response.json()).toEqual({ cards: [card] });
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('returns body and status from bridge unchanged', async () => {
-    const bridgeBody = { error: 'upstream failure' };
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(bridgeBody), {
-      status: 503,
-      headers: {
-        'content-type': 'application/problem+json',
-      },
-    })));
+  it('returns empty cards when registry discovery has no providers', async () => {
+    const discover = vi.fn(async () => []);
 
-    const { server, sessionId } = await createAgentApp();
+    const { server, sessionId } = await createAgentApp(createRegistry(discover));
 
     const response = await server.inject({
       method: 'GET',
@@ -98,17 +122,19 @@ describe('registerAgentRoutes agent cards', () => {
       },
     });
 
-    expect(response.statusCode).toBe(503);
-    expect(response.headers['content-type']).toContain('application/problem+json');
-    expect(response.body).toBe(JSON.stringify(bridgeBody));
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ cards: [] });
+    expect(discover).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 502 when fetch throws', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      throw new Error('connect ECONNREFUSED');
-    }));
+  it('returns 502 when registry discovery throws', async () => {
+    const registry = new ProviderRegistry();
+    const fanoutDiscover = vi.fn(async () => {
+      throw new Error('registry unavailable');
+    });
+    registry.fanoutDiscover = fanoutDiscover;
 
-    const { server, sessionId } = await createAgentApp();
+    const { server, sessionId } = await createAgentApp(registry);
 
     const response = await server.inject({
       method: 'GET',
@@ -120,21 +146,17 @@ describe('registerAgentRoutes agent cards', () => {
 
     expect(response.statusCode).toBe(502);
     expect(response.json()).toEqual({
-      error: 'Bridge unavailable',
-      detail: 'connect ECONNREFUSED',
+      error: 'Agent discovery failed',
+      detail: 'registry unavailable',
     });
+    expect(fanoutDiscover).toHaveBeenCalledTimes(1);
   });
 
   it('resolves /api/agents/cards before /api/agents/:name', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ cards: [] }), {
-      status: 200,
-      headers: {
-        'content-type': 'application/json',
-      },
-    }));
-    vi.stubGlobal('fetch', fetchMock);
+    const discover = vi.fn(async () => [card]);
+    vi.stubGlobal('fetch', vi.fn());
 
-    const { server, sessionId } = await createAgentApp();
+    const { server, sessionId } = await createAgentApp(createRegistry(discover));
 
     const response = await server.inject({
       method: 'GET',
@@ -145,7 +167,8 @@ describe('registerAgentRoutes agent cards', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect((fetchMock.mock.calls as unknown as Array<[string]>).at(0)?.[0]).toBe('http://localhost:7878/v1/agents/cards');
+    expect(response.json()).toEqual({ cards: [card] });
+    expect(discover).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

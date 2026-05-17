@@ -57,7 +57,7 @@ async function main(): Promise<void> {
   registerAuthRoutes(server, db);
   registerCardRoutes(server, db, config, sseManager, cardSessionManager, acpManagers, registry);
   registerPushCallbackRoutes(server, db, sseManager);
-  registerAgentRoutes(server, config);
+  registerAgentRoutes(server, config, registry);
   registerAdminRoutes(server, db);
   registerAgentAdminRoutes(server, db);
   registerPreferencesRoutes(server, db);
