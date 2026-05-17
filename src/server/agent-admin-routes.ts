@@ -58,7 +58,7 @@ export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Data
     if (!getAgent(db, id)) return reply.status(404).send({ error: 'Agent not found' });
 
     const patch: Parameters<typeof updateAgent>[2] = {};
-    if ('name' in body) patch.name = typeof body.name === 'string' ? body.name : null;
+    if ('name' in body) patch.name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim() : null;
     if (typeof body.protocol === 'string') patch.protocol = body.protocol;
     if (typeof body.url === 'string') patch.url = body.url.trim();
     if (typeof body.auto_approve === 'boolean') patch.auto_approve = body.auto_approve;

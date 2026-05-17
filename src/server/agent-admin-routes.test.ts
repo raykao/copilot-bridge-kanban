@@ -160,6 +160,21 @@ describe('PATCH /api/admin/agents/:id', () => {
     expect(JSON.parse(res.body).agent.name).toBeNull();
   });
 
+  it('patches empty string name to null', async () => {
+    const { server, cookie } = await createTestApp();
+    const create = await server.inject({
+      method: 'POST', url: '/api/admin/agents', headers: { cookie },
+      payload: { name: 'bob', url: 'ws://localhost:3030/bob' },
+    });
+    const { agent } = JSON.parse(create.body);
+    const res = await server.inject({
+      method: 'PATCH', url: `/api/admin/agents/${agent.id}`, headers: { cookie },
+      payload: { name: '' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).agent.name).toBeNull();
+  });
+
   it('returns 404 for unknown id', async () => {
     const { server, cookie } = await createTestApp();
     const res = await server.inject({
