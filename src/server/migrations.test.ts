@@ -91,11 +91,11 @@ describe('runMigrations', () => {
     expect(getUserVersion(db)).toBe(0);
   });
 
-  it('fresh DB starts user_version=6 and agent_tokens has nullable card_id and agents has nullable api_key', () => {
+  it('fresh DB starts user_version=7 and agent_tokens has nullable card_id and agents has nullable api_key', () => {
     const db = createDatabase(':memory:');
     initializeSchema(db);
 
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
     expect(getColumnNames(db, 'agent_tokens')).toContain('card_id');
     expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(getColumnNames(db, 'agents')).toContain('api_key');
@@ -126,7 +126,7 @@ describe('runMigrations', () => {
     const count = db.prepare('SELECT COUNT(*) AS c FROM agent_tokens').get() as { c: number };
     const indexes = (db.prepare('PRAGMA index_list(agent_tokens)').all() as Array<{ name: string }>).map((r) => r.name);
 
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
     expect(getColumnNames(db, 'agent_tokens')).toContain('card_id');
     expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(getColumnNames(db, 'agents')).toContain('api_key');
@@ -176,7 +176,7 @@ describe('runMigrations', () => {
       .prepare('SELECT id, agent_name, token_hash, card_id, created_at FROM agent_tokens ORDER BY id')
       .all();
 
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
     expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
@@ -201,18 +201,19 @@ describe('runMigrations', () => {
 });
 
 describe('migrations', () => {
-  it('fresh DB (from initializeSchema): bridge_run_id, acp_session_id, api_key present, no bridge_session_id, user_version=6', () => {
+  it('fresh DB (from initializeSchema): bridge_run_id, acp_session_id, api_key, provider_id present, no bridge_session_id, user_version=7', () => {
     const db = createDatabase(':memory:');
     initializeSchema(db);
 
     const cols = getColumnNames(db, 'runs');
     expect(cols).toContain('bridge_run_id');
     expect(cols).toContain('acp_session_id');
+    expect(cols).toContain('provider_id');
     expect(cols).not.toContain('bridge_session_id');
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
     expect(getColumn(db, 'agents', 'name').notnull).toBe(0);
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
   });
 
   it('pre-Phase-B DB: renames bridge_session_id to bridge_run_id', () => {
@@ -241,11 +242,12 @@ describe('migrations', () => {
     const cols = getColumnNames(db, 'runs');
     expect(cols).toContain('bridge_run_id');
     expect(cols).toContain('acp_session_id');
+    expect(cols).toContain('provider_id');
     expect(cols).not.toContain('bridge_session_id');
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
     expect(getColumn(db, 'agents', 'name').notnull).toBe(0);
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
 
     const row = db.prepare('SELECT bridge_run_id FROM runs WHERE id = ?').get('r1') as { bridge_run_id: string };
     expect(row.bridge_run_id).toBe('abc');
@@ -278,11 +280,12 @@ describe('migrations', () => {
     const cols = getColumnNames(db, 'runs');
     expect(cols).toContain('bridge_run_id');
     expect(cols).toContain('acp_session_id');
+    expect(cols).toContain('provider_id');
     expect(cols).not.toContain('bridge_session_id');
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
     expect(getColumn(db, 'agents', 'name').notnull).toBe(0);
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
 
     const row = db.prepare('SELECT bridge_run_id FROM runs WHERE id = ?').get('r1') as { bridge_run_id: string };
     expect(row.bridge_run_id).toBe('new');

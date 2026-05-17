@@ -5,6 +5,7 @@ import migration003 from './003-agents-table.js';
 import migration004 from './004-add-acp-session-id.js';
 import migration005 from './005-agents-api-key.js';
 import migration006 from './006-agents-name-nullable.js';
+import migration007 from './007-runs-provider-id.js';
 
 export const migrations: Migration[] = [
   migration001,
@@ -13,4 +14,5 @@ export const migrations: Migration[] = [
   migration004,
   migration005,
   migration006,
+  migration007,
 ];
