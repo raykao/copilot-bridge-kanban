@@ -44,6 +44,8 @@ async function main(): Promise<void> {
     }
   }
 
+  registry.startHealthMonitor();
+
   if (cardSessionManager) {
     const activeRuns = listActiveRunsGlobal(db).filter(
       (run): run is typeof run & { bridge_run_id: string } => run.bridge_run_id !== null,
@@ -83,6 +85,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
 
     server.log.info(`Received ${signal}, shutting down gracefully`);
+    registry.shutdown();
     sseManager.shutdown();
 
     try {
