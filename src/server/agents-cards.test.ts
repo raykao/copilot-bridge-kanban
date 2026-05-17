@@ -8,6 +8,7 @@ import { createDatabase, initializeSchema } from './db.js';
 import { createServer } from './server.js';
 import { ProviderRegistry } from './providers/registry.js';
 import type { AgentProvider, ProviderAgentCard } from './providers/types.js';
+import { SseManager } from './sse.js';
 
 const config: AppConfig = {
   port: 3000,
@@ -19,7 +20,8 @@ const config: AppConfig = {
   logLevel: 'silent',
 };
 
-const apps: Array<{ db: Database.Database; server: FastifyInstance }> = [];
+const apps: Array<{ db: Database.Database; server: FastifyInstance; sseManager: SseManager }> = [];
+const registries: ProviderRegistry[] = [];
 
 const card: ProviderAgentCard = {
   name: 'bob',
@@ -50,14 +52,20 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 
-  for (const { db, server } of apps.splice(0)) {
+  for (const { db, server, sseManager } of apps.splice(0)) {
+    sseManager.shutdown();
     await server.close();
     db.close();
+  }
+
+  for (const registry of registries.splice(0)) {
+    registry.shutdown();
   }
 });
 
 function createRegistry(discover: () => Promise<ProviderAgentCard[]>): ProviderRegistry {
   const registry = new ProviderRegistry();
+  registries.push(registry);
   const provider: AgentProvider = {
     id: 'test-provider',
     type: 'generic-acp',
@@ -70,6 +78,11 @@ function createRegistry(discover: () => Promise<ProviderAgentCard[]>): ProviderR
   return registry;
 }
 
+async function waitForDiscovery(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 async function createAgentApp(registry: ProviderRegistry = createRegistry(async () => [])): Promise<{
   server: FastifyInstance;
   sessionId: string;
@@ -79,12 +92,13 @@ async function createAgentApp(registry: ProviderRegistry = createRegistry(async 
 
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
-  registerAgentRoutes(server, config, registry);
+  const sseManager = new SseManager();
+  registerAgentRoutes(server, config, registry, db, sseManager);
 
   const user = await createUser(db, 'ray', 'secret-password');
   const sessionId = createSession(db, user.id);
 
-  apps.push({ db, server });
+  apps.push({ db, server, sseManager });
   return { server, sessionId };
 }
 
@@ -92,8 +106,11 @@ describe('registerAgentRoutes agent cards', () => {
   it('returns cards from registry fanout discovery', async () => {
     const discover = vi.fn(async () => [card]);
     vi.stubGlobal('fetch', vi.fn());
+    const registry = createRegistry(discover);
+    registry.startHealthMonitor();
+    await waitForDiscovery();
 
-    const { server, sessionId } = await createAgentApp(createRegistry(discover));
+    const { server, sessionId } = await createAgentApp(registry);
 
     const response = await server.inject({
       method: 'GET',
@@ -111,8 +128,11 @@ describe('registerAgentRoutes agent cards', () => {
 
   it('returns empty cards when registry discovery has no providers', async () => {
     const discover = vi.fn(async () => []);
+    const registry = createRegistry(discover);
+    registry.startHealthMonitor();
+    await waitForDiscovery();
 
-    const { server, sessionId } = await createAgentApp(createRegistry(discover));
+    const { server, sessionId } = await createAgentApp(registry);
 
     const response = await server.inject({
       method: 'GET',
@@ -124,7 +144,7 @@ describe('registerAgentRoutes agent cards', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ cards: [] });
-    expect(discover).toHaveBeenCalledTimes(1);
+    expect(discover).toHaveBeenCalledTimes(2);
   });
 
   it('returns 502 when registry discovery throws', async () => {
@@ -155,8 +175,11 @@ describe('registerAgentRoutes agent cards', () => {
   it('resolves /api/agents/cards before /api/agents/:name', async () => {
     const discover = vi.fn(async () => [card]);
     vi.stubGlobal('fetch', vi.fn());
+    const registry = createRegistry(discover);
+    registry.startHealthMonitor();
+    await waitForDiscovery();
 
-    const { server, sessionId } = await createAgentApp(createRegistry(discover));
+    const { server, sessionId } = await createAgentApp(registry);
 
     const response = await server.inject({
       method: 'GET',
