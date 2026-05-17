@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   registerPushCallbackRoutes(server, db, sseManager);
   registerAgentRoutes(server, config, registry, db, sseManager);
   registerAdminRoutes(server, db);
-  registerAgentAdminRoutes(server, db);
+  registerAgentAdminRoutes(server, db, registry, callbacks);
   registerPreferencesRoutes(server, db);
 
   await server.listen({ host: '0.0.0.0', port: config.port });

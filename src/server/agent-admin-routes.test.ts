@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
 import { COOKIE_NAME, createSession, createUser, registerSessionMiddleware } from './auth.js';
@@ -6,6 +6,8 @@ import { registerAgentAdminRoutes } from './agent-admin-routes.js';
 import { createDatabase, initializeSchema } from './db.js';
 import { createServer } from './server.js';
 import type { AppConfig } from './config.js';
+import type { DispatchCallbacks } from './card-session-manager.js';
+import type { ProviderRegistry } from './providers/registry.js';
 
 const config: AppConfig = {
   port: 3000,
@@ -31,7 +33,20 @@ async function createTestApp(): Promise<{ db: Database.Database; server: Fastify
   initializeSchema(db);
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
-  registerAgentAdminRoutes(server, db);
+  const registry = {
+    addProvider: vi.fn(),
+    removeProvider: vi.fn(),
+    getAllHealth: () => [],
+  } as unknown as ProviderRegistry;
+  const callbacks = {
+    onRunCreated: vi.fn(),
+    onEvent: vi.fn(),
+    onComplete: vi.fn(),
+    onAgentMessage: vi.fn(),
+    onPermissionRequest: vi.fn(),
+    onInterrupted: vi.fn(),
+  } as DispatchCallbacks;
+  registerAgentAdminRoutes(server, db, registry, callbacks);
 
   const user = await createUser(db, 'alice', 'password');
   const session = createSession(db, user.id);

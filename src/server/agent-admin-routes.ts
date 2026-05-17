@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
+import type { DispatchCallbacks } from './card-session-manager.js';
 import {
   createAgent,
   deleteAgent,
@@ -8,6 +9,9 @@ import {
   updateAgent,
   type NewAgent,
 } from './agents-db.js';
+import { ProviderRegistry } from './providers/registry.js';
+import { GenericAcpProvider } from './providers/generic-acp.js';
+import { CopilotBridgeProvider } from './providers/copilot-bridge.js';
 
 function deriveLabel(url: string): string {
   try {
@@ -18,7 +22,12 @@ function deriveLabel(url: string): string {
   }
 }
 
-export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Database): void {
+export function registerAgentAdminRoutes(
+  app: FastifyInstance,
+  db: Database.Database,
+  registry: ProviderRegistry,
+  callbacks: DispatchCallbacks,
+): void {
   app.get('/api/admin/agents', async (_request, reply) => {
     return reply.send({ agents: listAgents(db) });
   });
@@ -41,6 +50,11 @@ export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Data
     };
 
     const agent = createAgent(db, input);
+    if (agent.protocol === 'copilot-bridge') {
+      registry.addProvider(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key ?? null, callbacks));
+    } else if (agent.protocol === 'generic-acp') {
+      registry.addProvider(new GenericAcpProvider(agent.id, agent.url, agent.api_key ?? null));
+    }
     return reply.status(201).send({ agent });
   });
 
@@ -65,6 +79,14 @@ export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Data
     if ('api_key' in body) patch.api_key = typeof body.api_key === 'string' ? body.api_key : null;
 
     const agent = updateAgent(db, id, patch);
+    if (patch.url !== undefined || patch.api_key !== undefined) {
+      registry.removeProvider(id);
+      if (agent.protocol === 'copilot-bridge') {
+        registry.addProvider(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key ?? null, callbacks));
+      } else if (agent.protocol === 'generic-acp') {
+        registry.addProvider(new GenericAcpProvider(agent.id, agent.url, agent.api_key ?? null));
+      }
+    }
     return reply.send({ agent });
   });
 
@@ -72,6 +94,7 @@ export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Data
     const { id } = request.params as { id: string };
     if (!getAgent(db, id)) return reply.status(404).send({ error: 'Agent not found' });
     deleteAgent(db, id);
+    registry.removeProvider(id);
     return reply.status(204).send();
   });
 }
