@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 
 export interface Agent {
   id: string;
-  name: string;
+  name: string | null;
   protocol: string;
   url: string;
   auto_approve: boolean;
@@ -16,7 +16,7 @@ export interface Agent {
 }
 
 export interface NewAgent {
-  name: string;
+  name?: string | null;
   protocol?: string;
   url: string;
   auto_approve?: boolean;
@@ -30,7 +30,7 @@ export interface NewAgent {
 function rowToAgent(row: Record<string, unknown>): Agent {
   return {
     id: row.id as string,
-    name: row.name as string,
+    name: (row.name as string | null) ?? null,
     protocol: row.protocol as string,
     url: row.url as string,
     auto_approve: (row.auto_approve as number) === 1,
@@ -52,7 +52,7 @@ export function createAgent(db: Database.Database, input: NewAgent): Agent {
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
-    input.name,
+    input.name ?? null,
     input.protocol ?? 'acp',
     input.url,
     input.auto_approve === true ? 1 : 0,
@@ -86,7 +86,7 @@ export function updateAgent(
   const sets: string[] = [];
   const params: unknown[] = [];
 
-  if ('name' in patch) { sets.push('name = ?'); params.push(patch.name); }
+  if ('name' in patch) { sets.push('name = ?'); params.push(patch.name ?? null); }
   if ('protocol' in patch) { sets.push('protocol = ?'); params.push(patch.protocol); }
   if ('url' in patch) { sets.push('url = ?'); params.push(patch.url); }
   if ('auto_approve' in patch) { sets.push('auto_approve = ?'); params.push(patch.auto_approve === true ? 1 : 0); }

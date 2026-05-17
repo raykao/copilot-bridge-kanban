@@ -100,7 +100,7 @@ function ProviderRow({
 }) {
   return (
     <TableRow>
-      <TableCell className="font-medium">{agent.name}</TableCell>
+      <TableCell className="font-medium">{agent.name ?? agent.url}</TableCell>
       <TableCell>{formatProviderType(agent.protocol)}</TableCell>
       <TableCell className="max-w-md truncate" title={agent.url}>
         {agent.url}
@@ -148,18 +148,17 @@ function AddProviderForm({
         <form className="grid gap-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="provider-name">Name</Label>
+              <Label htmlFor="provider-name">Label <span className="text-muted-foreground">(optional)</span></Label>
               <Input
                 id="provider-name"
                 onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="agent-name"
-                required
+                placeholder="Optional label"
                 value={form.name}
               />
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="provider-protocol">Type</Label>
+              <Label htmlFor="provider-protocol">Type *</Label>
               <Select
                 onValueChange={(value) => {
                   if (value === 'generic-acp' || value === 'copilot-bridge') {
@@ -184,7 +183,7 @@ function AddProviderForm({
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="provider-url">URL</Label>
+              <Label htmlFor="provider-url">URL *</Label>
               <Input
                 id="provider-url"
                 onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))}
@@ -216,6 +215,8 @@ function AddProviderForm({
             />
             Auto-approve
           </Label>
+
+          <p className="text-sm text-muted-foreground">* Required</p>
 
           <div className="flex flex-wrap gap-2">
             <Button disabled={creating} type="submit">
@@ -268,7 +269,7 @@ export function SettingsPage() {
   });
 
   function handleDelete(agent: AdminAgent) {
-    if (window.confirm(`Delete agent ${agent.name}?`)) {
+    if (window.confirm(`Delete agent ${agent.name ?? agent.url}?`)) {
       deleteMutation.mutate(agent.id);
     }
   }
@@ -320,7 +321,7 @@ export function SettingsPage() {
           <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
+                <TableHead>Label</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>URL</TableHead>
                 <TableHead>Auto-approve</TableHead>

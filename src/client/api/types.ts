@@ -61,7 +61,7 @@ export interface AgentTokenCreateResult {
 
 export interface AdminAgent {
   id: string;
-  name: string;
+  name: string | null;
   protocol: string;
   url: string;
   api_key?: string | null;

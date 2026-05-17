@@ -9,6 +9,15 @@ import {
   type NewAgent,
 } from './agents-db.js';
 
+function deriveLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.host;
+  } catch {
+    return url;
+  }
+}
+
 export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Database): void {
   app.get('/api/admin/agents', async (_request, reply) => {
     return reply.send({ agents: listAgents(db) });
@@ -17,16 +26,15 @@ export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Data
   app.post('/api/admin/agents', async (request, reply) => {
     const body = request.body as Record<string, unknown>;
 
-    if (typeof body.name !== 'string' || body.name.trim() === '') {
-      return reply.status(400).send({ error: 'name is required' });
-    }
     if (typeof body.url !== 'string' || body.url.trim() === '') {
       return reply.status(400).send({ error: 'url is required' });
     }
 
+    const url = body.url.trim();
+    const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim() : deriveLabel(url);
     const input: NewAgent = {
-      name: body.name.trim(),
-      url: body.url.trim(),
+      name,
+      url,
       protocol: typeof body.protocol === 'string' ? body.protocol : 'acp',
       auto_approve: body.auto_approve === true,
       api_key: typeof body.api_key === 'string' ? body.api_key : undefined,
@@ -50,7 +58,7 @@ export function registerAgentAdminRoutes(app: FastifyInstance, db: Database.Data
     if (!getAgent(db, id)) return reply.status(404).send({ error: 'Agent not found' });
 
     const patch: Parameters<typeof updateAgent>[2] = {};
-    if (typeof body.name === 'string') patch.name = body.name.trim();
+    if ('name' in body) patch.name = typeof body.name === 'string' ? body.name : null;
     if (typeof body.protocol === 'string') patch.protocol = body.protocol;
     if (typeof body.url === 'string') patch.url = body.url.trim();
     if (typeof body.auto_approve === 'boolean') patch.auto_approve = body.auto_approve;

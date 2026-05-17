@@ -76,13 +76,24 @@ describe('POST /api/admin/agents', () => {
     expect(body.agent.auto_approve).toBe(false);
   });
 
-  it('returns 400 if name is missing', async () => {
+  it('derives label from URL if name is missing', async () => {
     const { server, cookie } = await createTestApp();
     const res = await server.inject({
       method: 'POST', url: '/api/admin/agents', headers: { cookie },
       payload: { url: 'ws://localhost:3030/bob' },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body).agent.name).toBe('localhost:3030');
+  });
+
+  it('derives label from URL if name is blank', async () => {
+    const { server, cookie } = await createTestApp();
+    const res = await server.inject({
+      method: 'POST', url: '/api/admin/agents', headers: { cookie },
+      payload: { name: '   ', url: 'not a url' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body).agent.name).toBe('not a url');
   });
 
   it('returns 400 if url is missing', async () => {
@@ -132,6 +143,21 @@ describe('PATCH /api/admin/agents/:id', () => {
     expect(updated.url).toBe('ws://localhost:9999/bob');
     expect(updated.auto_approve).toBe(true);
     expect(updated.name).toBe('bob');
+  });
+
+  it('patches name to null', async () => {
+    const { server, cookie } = await createTestApp();
+    const create = await server.inject({
+      method: 'POST', url: '/api/admin/agents', headers: { cookie },
+      payload: { name: 'bob', url: 'ws://localhost:3030/bob' },
+    });
+    const { agent } = JSON.parse(create.body);
+    const res = await server.inject({
+      method: 'PATCH', url: `/api/admin/agents/${agent.id}`, headers: { cookie },
+      payload: { name: null },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).agent.name).toBeNull();
   });
 
   it('returns 404 for unknown id', async () => {
