@@ -30,19 +30,18 @@ async function main(): Promise<void> {
   const callbacks = buildSessionCallbacks(db, sseManager);
   const cardSessionManager = new CardSessionManager(config, callbacks);
 
-  registry.register(new CopilotBridgeProvider('copilot-bridge-default', config, callbacks));
-
   const acpManagers = new Map<string, AcpSessionManager>();
   for (const agent of listAgents(db)) {
     if (agent.protocol === 'generic-acp') {
       registry.register(new GenericAcpProvider(agent.id, agent.url, agent.api_key));
-      continue;
+    } else if (agent.protocol === 'copilot-bridge') {
+      registry.register(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key, callbacks));
+    } else {
+      acpManagers.set(agent.id, new AcpSessionManager(
+        { url: agent.url, auto_approve: agent.auto_approve },
+        callbacks,
+      ));
     }
-
-    acpManagers.set(agent.id, new AcpSessionManager(
-      { url: agent.url, auto_approve: agent.auto_approve },
-      callbacks,
-    ));
   }
 
   if (cardSessionManager) {

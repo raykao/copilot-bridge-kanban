@@ -10,11 +10,26 @@ export class CopilotBridgeProvider implements AgentProvider {
   private readonly manager: CardSessionManager;
   private readonly apiKey: string;
 
-  constructor(id: string, config: AppConfig, callbacks: DispatchCallbacks) {
+  constructor(
+    id: string,
+    baseUrl: string,
+    apiKey: string | null,
+    callbacks: DispatchCallbacks,
+  ) {
     this.id = id;
-    this.baseUrl = config.bridgeApiUrl;
-    this.apiKey = config.bridgeApiKey;
-    this.manager = new CardSessionManager(config, callbacks);
+    this.baseUrl = baseUrl;
+    this.apiKey = apiKey ?? '';
+
+    const managerConfig: AppConfig = {
+      port: 0,
+      bridgeApiUrl: baseUrl,
+      bridgeApiKey: apiKey ?? '',
+      kanbanBaseUrl: '',
+      sessionSecret: '',
+      dbPath: '',
+      logLevel: 'silent',
+    };
+    this.manager = new CardSessionManager(managerConfig, callbacks);
   }
 
   async discover(): Promise<ProviderAgentCard[]> {
