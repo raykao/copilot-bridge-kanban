@@ -59,6 +59,16 @@ export interface AgentTokenCreateResult {
   created_at: string;
 }
 
+export interface AdminAgent {
+  id: string;
+  name: string;
+  protocol: string;
+  url: string;
+  api_key?: string | null;
+  auto_approve: boolean;
+  created_at: string;
+}
+
 export interface Card {
   id: string;
   type: "work" | "chat";

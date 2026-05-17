@@ -1,4 +1,5 @@
 import type {
+  AdminAgent,
   Agent,
   AgentCard,
   AgentTokenCreateResult,
@@ -23,6 +24,16 @@ type CardUpdate = Partial<
   agent?: string | null;
   labels?: string[];
 };
+type AdminAgentCreate = {
+  name: string;
+  protocol: string;
+  url: string;
+  api_key?: string;
+  auto_approve?: boolean;
+};
+type AdminAgentUpdate = Partial<
+  Pick<AdminAgent, 'name' | 'protocol' | 'url' | 'api_key' | 'auto_approve'>
+>;
 
 export class ApiError extends Error {
   constructor(
@@ -184,6 +195,34 @@ const adminTokens = {
   },
 };
 
+const admin = {
+  agents: {
+    list(): Promise<{ agents: AdminAgent[] }> {
+      return apiFetch<{ agents: AdminAgent[] }>('/api/admin/agents');
+    },
+
+    create(body: AdminAgentCreate): Promise<{ agent: AdminAgent }> {
+      return apiFetch<{ agent: AdminAgent }>('/api/admin/agents', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
+    update(id: string, patch: AdminAgentUpdate): Promise<{ agent: AdminAgent }> {
+      return apiFetch<{ agent: AdminAgent }>(`/api/admin/agents/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+    },
+
+    async delete(id: string): Promise<void> {
+      await apiFetch<void>(`/api/admin/agents/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+    },
+  },
+};
+
 const cards = {
   async create(card: NewCard): Promise<Card> {
     const result = await apiFetch<{ card: Card }>('/api/cards', {
@@ -336,4 +375,4 @@ const runs = {
   },
 };
 
-export const api = { auth, agents, adminTokens, cards, comments, labels, checkpoints, preferences, runs };
+export const api = { auth, agents, admin, adminTokens, cards, comments, labels, checkpoints, preferences, runs };
