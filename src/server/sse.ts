@@ -65,6 +65,13 @@ export class SseManager {
     }
   }
 
+  emitGlobal(event: string, data: object): void {
+    const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const raw of this.globalClients) {
+      if (!raw.writableEnded) raw.write(frame);
+    }
+  }
+
   startHeartbeat(intervalMs = 30_000): void {
     if (this.heartbeatTimer) return;
 

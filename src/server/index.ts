@@ -45,6 +45,15 @@ async function main(): Promise<void> {
   }
 
   registry.startHealthMonitor();
+  registry.setStateChangeCallback((id, health) => {
+    sseManager.emitGlobal('provider.status_changed', {
+      id,
+      status: health.status,
+      agents: health.agents,
+      lastError: health.lastError,
+      lastDiscoveredAt: health.lastDiscoveredAt,
+    });
+  });
 
   if (cardSessionManager) {
     const activeRuns = listActiveRunsGlobal(db).filter(
@@ -58,7 +67,7 @@ async function main(): Promise<void> {
   registerAuthRoutes(server, db);
   registerCardRoutes(server, db, config, sseManager, cardSessionManager, acpManagers, registry);
   registerPushCallbackRoutes(server, db, sseManager);
-  registerAgentRoutes(server, config, registry);
+  registerAgentRoutes(server, config, registry, db, sseManager);
   registerAdminRoutes(server, db);
   registerAgentAdminRoutes(server, db);
   registerPreferencesRoutes(server, db);
