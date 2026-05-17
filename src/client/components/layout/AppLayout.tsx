@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Outlet } from 'react-router-dom';
 
 import { Header } from '@/components/layout/Header';
@@ -6,6 +7,17 @@ import { Sidebar } from '@/components/layout/Sidebar';
 
 export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const es = new EventSource('/api/sse/system');
+    es.addEventListener('provider.status_changed', () => {
+      // Invalidate ['agents'] and all sub-keys (e.g. ['agents', 'provider-status'])
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+    });
+    es.onerror = () => { /* reconnects automatically */ };
+    return () => { es.close(); };
+  }, [queryClient]);
 
   return (
     <div className="flex h-screen bg-muted/20">

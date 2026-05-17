@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -297,15 +297,6 @@ export function SettingsPage() {
     refetchInterval: 30_000,
   });
 
-  useEffect(() => {
-    const es = new EventSource('/api/sse/system');
-    es.addEventListener('provider.status_changed', () => {
-      void queryClient.invalidateQueries({ queryKey: providerStatusQueryKey });
-    });
-    es.onerror = () => { /* silent - reconnects automatically */ };
-    return () => { es.close(); };
-  }, [queryClient]);
-
   const createMutation = useMutation({
     mutationFn: (form: ProviderFormState) => {
       const apiKey = form.apiKey.trim();
@@ -321,7 +312,10 @@ export function SettingsPage() {
     onSuccess: async () => {
       toast.success('Provider added');
       setShowAddForm(false);
-      await queryClient.invalidateQueries({ queryKey: adminAgentsQueryKey });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: adminAgentsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: providerStatusQueryKey }),
+      ]);
     },
   });
 
@@ -329,7 +323,10 @@ export function SettingsPage() {
     mutationFn: (id: string) => api.admin.agents.delete(id),
     onSuccess: async () => {
       toast.success('Provider deleted');
-      await queryClient.invalidateQueries({ queryKey: adminAgentsQueryKey });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: adminAgentsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: providerStatusQueryKey }),
+      ]);
     },
   });
 
