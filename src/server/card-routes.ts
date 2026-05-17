@@ -98,7 +98,6 @@ export function registerCardRoutes(
   acpManagers?: Map<string, AcpSessionManager>,
   registry?: ProviderRegistry,
 ): void {
-  void registry;
   const activeAcpRuns = new Map<string, AcpSessionManager>();
   const acpRunIds = new Set<string>();
 
@@ -153,6 +152,13 @@ export function registerCardRoutes(
         runMgr.dispatch(cardId, bot, prompt, runId);
         return;
       }
+    }
+    // Route through the registry provider that discovered this agent, so each
+    // provider's own URL and credentials are used for dispatch.
+    const provider = registry?.getByName(bot);
+    if (provider) {
+      provider.dispatch(bot, prompt, cardId, runId, callbacks);
+      return;
     }
     cardSessionManager?.dispatch(cardId, bot, prompt, runId);
   }
