@@ -36,10 +36,14 @@ export class CopilotBridgeProvider implements AgentProvider {
     }));
   }
 
-  dispatch(cardId: string, agentName: string, input: string, kanbanRunId: string): void;
-  dispatch(agentName: string, input: string, cardId: string, kanbanRunId: string, callbacks: DispatchCallbacks): void;
-  dispatch(first: string, second: string, third: string, fourth: string, _callbacks?: DispatchCallbacks): void {
-    this.manager.dispatch(first, second, third, fourth);
+  dispatch(
+    agentName: string,
+    input: string,
+    cardId: string,
+    kanbanRunId: string,
+    callbacks: DispatchCallbacks,
+  ): void {
+    this.manager.dispatch(cardId, agentName, input, kanbanRunId);
   }
 
   resumeRun(): void {
