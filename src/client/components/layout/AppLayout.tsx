@@ -11,6 +11,10 @@ export function AppLayout() {
 
   useEffect(() => {
     const es = new EventSource('/api/sse/system');
+    // On connect, invalidate immediately to catch events that fired before we subscribed
+    es.onopen = () => {
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+    };
     es.addEventListener('provider.status_changed', () => {
       // Invalidate ['agents'] and all sub-keys (e.g. ['agents', 'provider-status'])
       void queryClient.invalidateQueries({ queryKey: ['agents'] });

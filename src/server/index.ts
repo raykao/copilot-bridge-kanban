@@ -31,7 +31,8 @@ async function main(): Promise<void> {
   const cardSessionManager = new CardSessionManager(config, callbacks);
 
   const acpManagers = new Map<string, AcpSessionManager>();
-  for (const agent of listAgents(db)) {
+  const dbAgents = listAgents(db);
+  for (const agent of dbAgents) {
     if (agent.protocol === 'generic-acp') {
       registry.register(new GenericAcpProvider(agent.id, agent.url, agent.api_key));
     } else if (agent.protocol === 'copilot-bridge') {
@@ -42,6 +43,16 @@ async function main(): Promise<void> {
         callbacks,
       ));
     }
+  }
+
+  // Always register the env-var bridge as a fallback provider if no DB entry already
+  // uses that URL. This ensures the Agents board shows bots even when the user has not
+  // manually added a Settings entry, and guarantees the registry uses a working key.
+  const legacyAlreadyRegistered = dbAgents.some(
+    a => a.protocol === 'copilot-bridge' && a.url.replace(/\/+$/, '') === config.bridgeApiUrl.replace(/\/+$/, ''),
+  );
+  if (!legacyAlreadyRegistered) {
+    registry.register(new CopilotBridgeProvider('__env_bridge__', config.bridgeApiUrl, config.bridgeApiKey, callbacks));
   }
 
   registry.startHealthMonitor();
