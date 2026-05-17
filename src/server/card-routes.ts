@@ -24,6 +24,7 @@ import {
   type CardFilter,
 } from './cards.js';
 import type { SseManager } from './sse.js';
+import type { ProviderRegistry } from './providers/registry.js';
 
 const resumeDecisions = new Set([
   'allow-once',
@@ -95,7 +96,9 @@ export function registerCardRoutes(
   sseManager?: SseManager,
   cardSessionManager?: CardSessionManager,
   acpManagers?: Map<string, AcpSessionManager>,
+  registry?: ProviderRegistry,
 ): void {
+  void registry;
   const activeAcpRuns = new Map<string, AcpSessionManager>();
   const acpRunIds = new Set<string>();
 

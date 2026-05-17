@@ -13,11 +13,16 @@ import { listAgents } from './agents-db.js';
 import { AcpSessionManager } from './acp-session-manager.js';
 import { listActiveRunsGlobal } from './cards.js';
 import { SseManager } from './sse.js';
+import { ProviderRegistry } from './providers/registry.js';
+import { GenericAcpProvider } from './providers/generic-acp.js';
+import { CopilotBridgeProvider } from './providers/copilot-bridge.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const db = createDatabase(config.dbPath);
   initializeSchema(db);
+
+  const registry = new ProviderRegistry();
 
   const sseManager = new SseManager();
   sseManager.startHeartbeat();
@@ -25,8 +30,15 @@ async function main(): Promise<void> {
   const callbacks = buildSessionCallbacks(db, sseManager);
   const cardSessionManager = new CardSessionManager(config, callbacks);
 
+  registry.register(new CopilotBridgeProvider('copilot-bridge-default', config, callbacks));
+
   const acpManagers = new Map<string, AcpSessionManager>();
   for (const agent of listAgents(db)) {
+    if (agent.protocol === 'generic-acp') {
+      registry.register(new GenericAcpProvider(agent.id, agent.url, agent.api_key));
+      continue;
+    }
+
     acpManagers.set(agent.id, new AcpSessionManager(
       { url: agent.url, auto_approve: agent.auto_approve },
       callbacks,
@@ -43,7 +55,7 @@ async function main(): Promise<void> {
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
   registerAuthRoutes(server, db);
-  registerCardRoutes(server, db, config, sseManager, cardSessionManager, acpManagers);
+  registerCardRoutes(server, db, config, sseManager, cardSessionManager, acpManagers, registry);
   registerPushCallbackRoutes(server, db, sseManager);
   registerAgentRoutes(server, config);
   registerAdminRoutes(server, db);
