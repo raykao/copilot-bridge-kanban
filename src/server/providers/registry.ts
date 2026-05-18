@@ -14,6 +14,11 @@ export type ProviderStateChangeCallback = (
   health: ProviderHealth,
 ) => void;
 
+export type AgentsDiscoveredCallback = (
+  providerId: string,
+  cards: ProviderAgentCard[],
+) => void;
+
 export class ProviderRegistry {
   private providers = new Map<string, AgentProvider>();
   private nameIndex = new Map<string, string>(); // agentName -> providerId
@@ -21,6 +26,7 @@ export class ProviderRegistry {
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private retryAttempts = new Map<string, number>();
   private onStateChange: ProviderStateChangeCallback | null = null;
+  private onAgentsDiscovered: AgentsDiscoveredCallback | null = null;
 
   register(provider: AgentProvider): void {
     this.providers.set(provider.id, provider);
@@ -56,6 +62,10 @@ export class ProviderRegistry {
     this.onStateChange = cb;
   }
 
+  setAgentsDiscoveredCallback(cb: AgentsDiscoveredCallback): void {
+    this.onAgentsDiscovered = cb;
+  }
+
   getHealth(id: string): ProviderHealth | undefined {
     return this.health.get(id);
   }
@@ -85,6 +95,14 @@ export class ProviderRegistry {
     for (const [name, pid] of this.nameIndex) {
       if (pid === id) this.nameIndex.delete(name);
     }
+  }
+
+  triggerDiscover(id: string): boolean {
+    const provider = this.providers.get(id);
+    if (!provider) return false;
+    this.clearTimer(id);
+    void this.discoverOne(provider);
+    return true;
   }
 
   startHealthMonitor(): void {
@@ -122,6 +140,13 @@ export class ProviderRegistry {
         lastError: null,
         lastDiscoveredAt: new Date().toISOString(),
       });
+      if (this.onAgentsDiscovered) {
+        try {
+          this.onAgentsDiscovered(provider.id, cards);
+        } catch (err) {
+          console.error(`ProviderRegistry: onAgentsDiscovered callback threw for ${provider.id}:`, err);
+        }
+      }
       this.scheduleRetry(provider.id, 60_000);
     } catch (err) {
       if (!this.isCurrentProvider(provider)) return;

@@ -4,18 +4,20 @@ import { registerAuthRoutes, registerSessionMiddleware } from './auth.js';
 import { registerAgentRoutes } from './agents.js';
 import { registerAdminRoutes } from './admin-routes.js';
 import { registerAgentAdminRoutes } from './agent-admin-routes.js';
+import { registerProviderAdminRoutes } from './provider-admin-routes.js';
 import { buildSessionCallbacks, registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerPushCallbackRoutes } from './push-callback-routes.js';
 import { createServer } from './server.js';
 import { CardSessionManager } from './card-session-manager.js';
-import { listAgents } from './agents-db.js';
+import { listAgents, upsertDiscoveredAgent } from './agents-db.js';
 import { AcpSessionManager } from './acp-session-manager.js';
 import { listActiveRunsGlobal } from './cards.js';
 import { SseManager } from './sse.js';
 import { ProviderRegistry } from './providers/registry.js';
 import { GenericAcpProvider } from './providers/generic-acp.js';
 import { CopilotBridgeProvider } from './providers/copilot-bridge.js';
+import { listProviders } from './providers-db.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -56,6 +58,13 @@ async function main(): Promise<void> {
       lastDiscoveredAt: health.lastDiscoveredAt,
     });
   });
+  registry.setAgentsDiscoveredCallback((providerId, cards) => {
+    const provider = listProviders(db).find((p) => p.id === providerId);
+    if (!provider) return;
+    for (const card of cards) {
+      upsertDiscoveredAgent(db, providerId, card, provider.url, provider.api_key, false);
+    }
+  });
 
   const activeRuns = listActiveRunsGlobal(db).filter(
     (run): run is typeof run & { bridge_run_id: string } => run.bridge_run_id !== null,
@@ -73,6 +82,7 @@ async function main(): Promise<void> {
   registerAgentRoutes(server, config, registry, db, sseManager);
   registerAdminRoutes(server, db);
   registerAgentAdminRoutes(server, db, registry, callbacks, providerManagers);
+  registerProviderAdminRoutes(server, db, registry, callbacks);
   registerPreferencesRoutes(server, db);
 
   await server.listen({ host: '0.0.0.0', port: config.port });
