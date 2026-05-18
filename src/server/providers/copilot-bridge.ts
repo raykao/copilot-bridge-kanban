@@ -1,6 +1,4 @@
-import { CardSessionManager } from '../card-session-manager.js';
-import type { AppConfig } from '../config.js';
-import type { DispatchCallbacks } from '../card-session-manager.js';
+import { CardSessionManager, type DispatchCallbacks } from '../card-session-manager.js';
 import type { AgentProvider, ProviderAgentCard, ProviderType } from './types.js';
 
 export class CopilotBridgeProvider implements AgentProvider {
@@ -14,22 +12,12 @@ export class CopilotBridgeProvider implements AgentProvider {
     id: string,
     baseUrl: string,
     apiKey: string | null,
-    callbacks: DispatchCallbacks,
+    manager: CardSessionManager,
   ) {
     this.id = id;
     this.baseUrl = baseUrl;
     this.apiKey = apiKey ?? '';
-
-    const managerConfig: AppConfig = {
-      port: 0,
-      bridgeApiUrl: baseUrl,
-      bridgeApiKey: apiKey ?? '',
-      kanbanBaseUrl: '',
-      sessionSecret: '',
-      dbPath: '',
-      logLevel: 'silent',
-    };
-    this.manager = new CardSessionManager(managerConfig, callbacks);
+    this.manager = manager;
   }
 
   async discover(): Promise<ProviderAgentCard[]> {

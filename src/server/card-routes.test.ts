@@ -10,6 +10,8 @@ import { createServer } from './server.js';
 import { buildSessionCallbacks, registerCardRoutes } from './card-routes.js';
 import type { CardSessionManager, DispatchCallbacks } from './card-session-manager.js';
 import type { AcpSessionManager } from './acp-session-manager.js';
+import type { ProviderRegistry } from './providers/registry.js';
+import type { AgentProvider } from './providers/types.js';
 
 const config: AppConfig = {
   port: 3000,
@@ -37,6 +39,25 @@ afterEach(async () => {
 function createMockCardSessionManager(): { manager: CardSessionManager; dispatch: ReturnType<typeof vi.fn> } {
   const dispatch = vi.fn();
   return { manager: { dispatch } as unknown as CardSessionManager, dispatch };
+}
+
+function createMockBridgeProvider(manager: CardSessionManager, id = 'provider-1'): AgentProvider {
+  return {
+    id,
+    type: 'copilot-bridge',
+    baseUrl: 'http://localhost:7878',
+    discover: vi.fn(async () => []),
+    dispatch: vi.fn((agentName: string, input: string, cardId: string, kanbanRunId: string) => {
+      manager.dispatch(cardId, agentName, input, kanbanRunId);
+    }),
+    resumeRun: vi.fn(),
+  };
+}
+
+function createMockProviderRegistry(provider: AgentProvider): ProviderRegistry {
+  return {
+    getByName: vi.fn((agentName: string) => (agentName === 'bob' ? provider : undefined)),
+  } as unknown as ProviderRegistry;
 }
 
 type MockAcpRun = {
@@ -83,10 +104,18 @@ function createAcpAgentRow(db: Database.Database, id = 'agent-1'): void {
   ).run(id, id, 'acp', 'ws://localhost/acp', 0, new Date().toISOString());
 }
 
+function createBridgeProviderRow(db: Database.Database, id = 'provider-1'): void {
+  db.prepare(
+    `INSERT INTO agents (id, name, protocol, url, auto_approve, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(id, id, 'copilot-bridge', 'http://localhost:7878', 0, new Date().toISOString());
+}
+
 async function createTestApp(options: {
   registerBridge?: boolean;
-  cardSessionManager?: CardSessionManager;
+  providerManagers?: Map<string, CardSessionManager>;
   acpManagers?: Map<string, AcpSessionManager>;
+  registry?: ProviderRegistry;
 } = {}): Promise<{
   db: Database.Database;
   server: FastifyInstance;
@@ -103,8 +132,9 @@ async function createTestApp(options: {
     db,
     options.registerBridge ? config : undefined,
     undefined,
-    options.cardSessionManager,
+    options.providerManagers ?? new Map(),
     options.acpManagers,
+    options.registry,
   );
 
   await createUser(db, 'alice', 'password');
@@ -303,8 +333,11 @@ describe('comment routes', () => {
   });
 
   it('dispatches comment-create run through CardSessionManager', async () => {
-    const { manager, dispatch } = createMockCardSessionManager();
-    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true, cardSessionManager: manager });
+    const { manager: mockMgr, dispatch: mockDispatch } = createMockCardSessionManager();
+    const providerManagers = new Map([['provider-1', mockMgr]]);
+    const registry = createMockProviderRegistry(createMockBridgeProvider(mockMgr));
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true, providerManagers, registry });
+    createBridgeProviderRow(db);
 
     const createRes = await server.inject({
       method: 'POST', url: '/api/cards',
@@ -321,10 +354,11 @@ describe('comment routes', () => {
     expect(commentRes.statusCode).toBe(202);
     const { run_id } = JSON.parse(commentRes.body);
 
-    expect(dispatch).toHaveBeenCalledWith(card.id, 'bob', 'do the thing', run_id);
+    expect(mockDispatch).toHaveBeenCalledWith(card.id, 'bob', 'do the thing', run_id);
     const [run] = listRuns(db, card.id);
     expect(run.status).toBe('created');
     expect(run.bridge_run_id).toBeNull();
+    expect(run.provider_id).toBe('provider-1');
   });
 
   it('buildSessionCallbacks persists run status and agent comments', async () => {
@@ -1090,8 +1124,11 @@ describe('card creation with agent', () => {
   });
 
   it('dispatches card-create run through CardSessionManager', async () => {
-    const { manager, dispatch } = createMockCardSessionManager();
-    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true, cardSessionManager: manager });
+    const { manager: mockMgr, dispatch: mockDispatch } = createMockCardSessionManager();
+    const providerManagers = new Map([['provider-1', mockMgr]]);
+    const registry = createMockProviderRegistry(createMockBridgeProvider(mockMgr));
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true, providerManagers, registry });
+    createBridgeProviderRow(db);
 
     const createRes = await server.inject({
       method: 'POST', url: '/api/cards',
@@ -1102,12 +1139,13 @@ describe('card creation with agent', () => {
     const { card } = JSON.parse(createRes.body);
 
     const [run] = listRuns(db, card.id);
-    expect(dispatch).toHaveBeenCalledWith(card.id, 'bob', 'Build the thing', run.id);
+    expect(mockDispatch).toHaveBeenCalledWith(card.id, 'bob', 'Build the thing', run.id);
     expect(run.status).toBe('created');
     expect(run.bridge_run_id).toBeNull();
+    expect(run.provider_id).toBe('provider-1');
   });
 
-  it('keeps card-create response successful when manager is absent', async () => {
+  it('keeps card-create response successful and fails run when agent is unknown', async () => {
     const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
 
     const createRes = await server.inject({
@@ -1119,14 +1157,20 @@ describe('card creation with agent', () => {
     const { card } = JSON.parse(createRes.body);
 
     const [run] = listRuns(db, card.id);
-    expect(run.status).toBe('created');
+    expect(run.status).toBe('failed');
+    expect(run.error).toBe("Agent 'bob' is not configured. Add it in Settings.");
+    expect(run.finished_at).toEqual(expect.any(String));
     expect(run.bridge_run_id).toBeNull();
   });
 });
 
 describe('bridge streaming integration', () => {
   it('persists agent reply as card comment and sets bridge_run_id when message.completed fires', async () => {
-    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const { manager: mockMgr } = createMockCardSessionManager();
+    const providerManagers = new Map([['provider-1', mockMgr]]);
+    const registry = createMockProviderRegistry(createMockBridgeProvider(mockMgr));
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true, providerManagers, registry });
+    createBridgeProviderRow(db);
 
     const createRes = await server.inject({
       method: 'POST', url: '/api/cards',
@@ -1162,7 +1206,11 @@ describe('bridge streaming integration', () => {
   });
 
   it('sets run status to running with bridge_run_id when onReady fires', async () => {
-    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true });
+    const { manager: mockMgr } = createMockCardSessionManager();
+    const providerManagers = new Map([['provider-1', mockMgr]]);
+    const registry = createMockProviderRegistry(createMockBridgeProvider(mockMgr));
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true, providerManagers, registry });
+    createBridgeProviderRow(db);
 
     const createRes = await server.inject({
       method: 'POST', url: '/api/cards',

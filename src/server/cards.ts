@@ -68,12 +68,14 @@ export interface Run {
   error: string | null;
   created_at: string;
   finished_at: string | null;
+  provider_id: string | null;
 }
 
 export interface NewRun {
   card_id: string;
   agent_name: string;
   input_comment_id?: string;
+  provider_id?: string;
 }
 
 export interface Checkpoint {
@@ -263,15 +265,15 @@ export function createRun(db: Database.Database, input: NewRun): Run {
   const ts = now();
 
   db.prepare(
-    `INSERT INTO runs (id, card_id, agent_name, status, input_comment_id, created_at)
-     VALUES (?, ?, ?, 'created', ?, ?)`,
-  ).run(id, input.card_id, input.agent_name, input.input_comment_id ?? null, ts);
+    `INSERT INTO runs (id, card_id, agent_name, status, input_comment_id, provider_id, created_at)
+     VALUES (?, ?, ?, 'created', ?, ?, ?)`,
+  ).run(id, input.card_id, input.agent_name, input.input_comment_id ?? null, input.provider_id ?? null, ts);
 
   return db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as Run;
 }
 
 export function updateRun(db: Database.Database, id: string, patch: Partial<Run>): Run {
-  const allowed = ['status', 'bridge_run_id', 'acp_session_id', 'error', 'finished_at'] as const;
+  const allowed = ['status', 'bridge_run_id', 'acp_session_id', 'error', 'finished_at', 'provider_id'] as const;
   const sets: string[] = [];
   const params: unknown[] = [];
 
