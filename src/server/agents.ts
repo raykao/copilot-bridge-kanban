@@ -30,13 +30,25 @@ export function registerAgentRoutes(
 
   app.get('/api/agents/cards', async (_request, reply) => {
     try {
-      let cards = await registry.fanoutDiscover();
-      if (cards.length === 0) {
-        registry.startHealthMonitor();
-        await Promise.resolve();
-        cards = await registry.fanoutDiscover();
-      }
-      return reply.send({ cards });
+      const registryCards = await registry.fanoutDiscover();
+
+      // Include acp-protocol agents from DB - they bypass the registry and live in acpManagers
+      const acpCards = listAgents(db)
+        .filter(a => a.protocol !== 'generic-acp' && a.protocol !== 'copilot-bridge')
+        .map(a => ({
+          name: a.name,
+          description: '',
+          version: '0.1.0',
+          supportedInterfaces: [] as [],
+          capabilities: { streaming: true, pushNotifications: false },
+          defaultInputModes: ['text'],
+          defaultOutputModes: ['text'],
+          skills: [] as [],
+          providerType: 'acp' as const,
+          providerBaseUrl: a.url,
+        }));
+
+      return reply.send({ cards: [...registryCards, ...acpCards] });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Discovery error';
       return reply.status(502).send({ error: 'Agent discovery failed', detail: message });

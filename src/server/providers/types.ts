@@ -1,6 +1,6 @@
 import type { DispatchCallbacks } from '../card-session-manager.js';
 
-export type ProviderType = 'generic-acp' | 'copilot-bridge';
+export type ProviderType = 'generic-acp' | 'copilot-bridge' | 'acp';
 
 export interface ProviderAgentCard {
   name: string;
