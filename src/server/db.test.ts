@@ -26,6 +26,7 @@ describe('database schema', () => {
       'cards',
       'checkpoints',
       'preferences',
+      'providers',
       'runs',
       'sessions',
       'users',

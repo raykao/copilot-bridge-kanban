@@ -144,7 +144,7 @@ describe('registerAgentRoutes agent cards', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ cards: [] });
-    expect(discover).toHaveBeenCalledTimes(2);
+    expect(discover).toHaveBeenCalledTimes(1);
   });
 
   it('returns 502 when registry discovery throws', async () => {
