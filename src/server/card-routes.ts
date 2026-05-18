@@ -94,10 +94,11 @@ export function registerCardRoutes(
   db: Database.Database,
   config?: AppConfig,
   sseManager?: SseManager,
-  cardSessionManager?: CardSessionManager,
+  providerManagers?: Map<string, CardSessionManager>,
   acpManagers?: Map<string, AcpSessionManager>,
   registry?: ProviderRegistry,
 ): void {
+  void providerManagers;
   const activeAcpRuns = new Map<string, AcpSessionManager>();
   const acpRunIds = new Set<string>();
 
@@ -153,14 +154,14 @@ export function registerCardRoutes(
         return;
       }
     }
-    // Route through the registry provider that discovered this agent, so each
-    // provider's own URL and credentials are used for dispatch.
     const provider = registry?.getByName(bot);
     if (provider) {
+      updateRun(db, runId, { provider_id: provider.id });
       provider.dispatch(bot, prompt, cardId, runId, callbacks);
       return;
     }
-    cardSessionManager?.dispatch(cardId, bot, prompt, runId);
+    // Agent not found in registry - fail the run immediately
+    updateRun(db, runId, { status: 'failed', error: `Agent '${bot}' is not configured. Add it in Settings.`, finished_at: new Date().toISOString() });
   }
 
   // -----------------------------------------------------------------------
