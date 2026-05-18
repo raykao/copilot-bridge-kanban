@@ -89,7 +89,6 @@ async function main(): Promise<void> {
       port: config.port,
       logLevel: config.logLevel,
       dbPath: config.dbPath,
-      bridgeApiUrl: config.bridgeApiUrl,
     },
     'kanban server started',
   );

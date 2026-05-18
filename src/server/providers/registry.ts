@@ -129,7 +129,10 @@ export class ProviderRegistry {
       this.retryAttempts.set(provider.id, attempt);
       const delay = Math.min(5_000 * Math.pow(2, attempt - 1), 60_000);
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`ProviderRegistry: ${provider.id} discover failed (attempt ${attempt}):`, msg);
+      // Log attempt 1 and each doubling (1,2,4,8,16) then go silent - backoff already handles retries
+      if (attempt <= 5 || (attempt & (attempt - 1)) === 0) {
+        console.error(`ProviderRegistry: ${provider.id} discover failed (attempt ${attempt}):`, msg);
+      }
       if (!this.isCurrentProvider(provider)) return;
       this.setHealth(provider.id, {
         status: 'disconnected',
