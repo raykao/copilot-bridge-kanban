@@ -98,7 +98,6 @@ export function registerCardRoutes(
   acpManagers?: Map<string, AcpSessionManager>,
   registry?: ProviderRegistry,
 ): void {
-  void providerManagers;
   const activeAcpRuns = new Map<string, AcpSessionManager>();
   const acpRunIds = new Set<string>();
 
