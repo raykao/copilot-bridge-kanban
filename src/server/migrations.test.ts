@@ -40,6 +40,32 @@ function createLegacyAgentTokensTable(db: Database.Database, withRow = false): v
   }
 }
 
+function createLegacyCardsTable(db: Database.Database, withRow = false): void {
+  db.exec(`
+    CREATE TABLE cards (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'work',
+      agent_bot TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'idea',
+      created_by TEXT NOT NULL,
+      workspace_subdir TEXT,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      archived_at TEXT
+    );
+  `);
+
+  if (withRow) {
+    db.prepare(
+      `INSERT INTO cards (id, title, status, created_by, created_at, updated_at)
+       VALUES ('c1', 'Legacy card', 'idea', 'user-1', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+    ).run();
+  }
+}
+
 describe('runMigrations', () => {
   it('sets user_version to N after running all migrations on a fresh DB', () => {
     const db = new Database(':memory:');
@@ -91,11 +117,11 @@ describe('runMigrations', () => {
     expect(getUserVersion(db)).toBe(0);
   });
 
-  it('fresh DB starts user_version=10 and agent_tokens has nullable card_id and agents has nullable api_key', () => {
+  it('fresh DB starts user_version=11 and agent_tokens has nullable card_id and agents has nullable api_key', () => {
     const db = createDatabase(':memory:');
     initializeSchema(db);
 
-    expect(getUserVersion(db)).toBe(10);
+    expect(getUserVersion(db)).toBe(11);
     expect(getColumnNames(db, 'agent_tokens')).toContain('card_id');
     expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(getColumnNames(db, 'agents')).toContain('api_key');
@@ -106,6 +132,7 @@ describe('runMigrations', () => {
   it('version 1 DB clears stale agent token rows and creates the card bot index', () => {
     const db = new Database(':memory:');
     createLegacyAgentTokensTable(db, true);
+    createLegacyCardsTable(db);
     db.exec(`
       CREATE TABLE runs (
         id TEXT PRIMARY KEY,
@@ -126,7 +153,7 @@ describe('runMigrations', () => {
     const count = db.prepare('SELECT COUNT(*) AS c FROM agent_tokens').get() as { c: number };
     const indexes = (db.prepare('PRAGMA index_list(agent_tokens)').all() as Array<{ name: string }>).map((r) => r.name);
 
-    expect(getUserVersion(db)).toBe(10);
+    expect(getUserVersion(db)).toBe(11);
     expect(getColumnNames(db, 'agent_tokens')).toContain('card_id');
     expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(getColumnNames(db, 'agents')).toContain('api_key');
@@ -139,6 +166,7 @@ describe('runMigrations', () => {
 
   it('version 2 DB relaxes agent_tokens.card_id and converts empty globals to NULL', () => {
     const db = new Database(':memory:');
+    createLegacyCardsTable(db);
     db.exec(`
       CREATE TABLE agent_tokens (
         id TEXT PRIMARY KEY,
@@ -176,7 +204,7 @@ describe('runMigrations', () => {
       .prepare('SELECT id, agent_name, token_hash, card_id, created_at FROM agent_tokens ORDER BY id')
       .all();
 
-    expect(getUserVersion(db)).toBe(10);
+    expect(getUserVersion(db)).toBe(11);
     expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
@@ -201,7 +229,7 @@ describe('runMigrations', () => {
 });
 
 describe('migrations', () => {
-  it('fresh DB (from initializeSchema): bridge_run_id, acp_session_id, api_key, provider_id present, no bridge_session_id, user_version=10', () => {
+  it('fresh DB (from initializeSchema): bridge_run_id, acp_session_id, api_key, provider_id present, no bridge_session_id, user_version=11', () => {
     const db = createDatabase(':memory:');
     initializeSchema(db);
 
@@ -213,12 +241,24 @@ describe('migrations', () => {
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
     expect(getColumn(db, 'agents', 'name').notnull).toBe(0);
-    expect(getUserVersion(db)).toBe(10);
+    expect(getUserVersion(db)).toBe(11);
+  });
+
+  it('migration 011 changes runs.provider_id FK from agents to providers', () => {
+    const db = createDatabase(':memory:');
+    initializeSchema(db);
+
+    const fks = db.prepare(`PRAGMA foreign_key_list('runs')`).all() as Array<{ from: string; table: string }>;
+    const providerFk = fks.find((fk) => fk.from === 'provider_id');
+
+    expect(providerFk).toBeDefined();
+    expect(providerFk?.table).toBe('providers');
   });
 
   it('pre-Phase-B DB: renames bridge_session_id to bridge_run_id', () => {
     const db = new Database(':memory:');
     createLegacyAgentTokensTable(db);
+    createLegacyCardsTable(db, true);
     db.exec(`
       CREATE TABLE runs (
         id TEXT PRIMARY KEY,
@@ -247,7 +287,7 @@ describe('migrations', () => {
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
     expect(getColumn(db, 'agents', 'name').notnull).toBe(0);
-    expect(getUserVersion(db)).toBe(10);
+    expect(getUserVersion(db)).toBe(11);
 
     const row = db.prepare('SELECT bridge_run_id FROM runs WHERE id = ?').get('r1') as { bridge_run_id: string };
     expect(row.bridge_run_id).toBe('abc');
@@ -256,6 +296,7 @@ describe('migrations', () => {
   it('both-cols DB: drops bridge_session_id and preserves bridge_run_id', () => {
     const db = new Database(':memory:');
     createLegacyAgentTokensTable(db);
+    createLegacyCardsTable(db, true);
     db.exec(`
       CREATE TABLE runs (
         id TEXT PRIMARY KEY,
@@ -285,7 +326,7 @@ describe('migrations', () => {
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
     expect(getColumn(db, 'agents', 'name').notnull).toBe(0);
-    expect(getUserVersion(db)).toBe(10);
+    expect(getUserVersion(db)).toBe(11);
 
     const row = db.prepare('SELECT bridge_run_id FROM runs WHERE id = ?').get('r1') as { bridge_run_id: string };
     expect(row.bridge_run_id).toBe('new');
@@ -318,6 +359,7 @@ describe('migrations', () => {
     // Manually run migrations 001-009 to set up a pre-010 state, then insert
     // an unlinked agent, then run migration 010.
     createLegacyAgentTokensTable(db);
+    createLegacyCardsTable(db);
     db.exec(`
       CREATE TABLE runs (
         id TEXT PRIMARY KEY,

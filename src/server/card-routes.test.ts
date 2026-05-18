@@ -106,9 +106,9 @@ function createAcpAgentRow(db: Database.Database, id = 'agent-1'): void {
 
 function createBridgeProviderRow(db: Database.Database, id = 'provider-1'): void {
   db.prepare(
-    `INSERT INTO agents (id, name, protocol, url, auto_approve, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(id, id, 'copilot-bridge', 'http://localhost:7878', 0, new Date().toISOString());
+    `INSERT INTO providers (id, type, label, url, ws_url, api_key, status, created_at)
+     VALUES (?, 'copilot-bridge', ?, 'http://localhost:7878', NULL, NULL, 'connected', ?)`,
+  ).run(id, id, new Date().toISOString());
 }
 
 async function createTestApp(options: {
