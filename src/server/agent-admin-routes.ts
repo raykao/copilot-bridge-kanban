@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
-import type { DispatchCallbacks } from './card-session-manager.js';
+import { CardSessionManager, type BridgeConfig, type DispatchCallbacks } from './card-session-manager.js';
 import {
   createAgent,
   deleteAgent,
@@ -27,6 +27,7 @@ export function registerAgentAdminRoutes(
   db: Database.Database,
   registry: ProviderRegistry,
   callbacks: DispatchCallbacks,
+  providerManagers: Map<string, CardSessionManager>,
 ): void {
   app.get('/api/admin/agents', async (_request, reply) => {
     return reply.send({ agents: listAgents(db) });
@@ -51,7 +52,10 @@ export function registerAgentAdminRoutes(
 
     const agent = createAgent(db, input);
     if (agent.protocol === 'copilot-bridge') {
-      registry.addProvider(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key ?? null, callbacks));
+      const bridgeConfig: BridgeConfig = { bridgeApiUrl: agent.url, bridgeApiKey: agent.api_key ?? '' };
+      const mgr = new CardSessionManager(bridgeConfig, callbacks);
+      providerManagers.set(agent.id, mgr);
+      registry.addProvider(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key ?? null, mgr));
     } else if (agent.protocol === 'generic-acp') {
       registry.addProvider(new GenericAcpProvider(agent.id, agent.url, agent.api_key ?? null));
     }
@@ -81,8 +85,12 @@ export function registerAgentAdminRoutes(
     const agent = updateAgent(db, id, patch);
     if (patch.url !== undefined || patch.api_key !== undefined) {
       registry.removeProvider(id);
+      providerManagers.delete(id);
       if (agent.protocol === 'copilot-bridge') {
-        registry.addProvider(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key ?? null, callbacks));
+        const bridgeConfig: BridgeConfig = { bridgeApiUrl: agent.url, bridgeApiKey: agent.api_key ?? '' };
+        const mgr = new CardSessionManager(bridgeConfig, callbacks);
+        providerManagers.set(agent.id, mgr);
+        registry.addProvider(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key ?? null, mgr));
       } else if (agent.protocol === 'generic-acp') {
         registry.addProvider(new GenericAcpProvider(agent.id, agent.url, agent.api_key ?? null));
       }
@@ -95,6 +103,7 @@ export function registerAgentAdminRoutes(
     if (!getAgent(db, id)) return reply.status(404).send({ error: 'Agent not found' });
     deleteAgent(db, id);
     registry.removeProvider(id);
+    providerManagers.delete(id);
     return reply.status(204).send();
   });
 }

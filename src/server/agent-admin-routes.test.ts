@@ -54,7 +54,7 @@ async function createTestApp(): Promise<{
     onPermissionRequest: vi.fn(),
     onInterrupted: vi.fn(),
   } as DispatchCallbacks;
-  registerAgentAdminRoutes(server, db, providerRegistry, callbacks);
+  registerAgentAdminRoutes(server, db, providerRegistry, callbacks, new Map());
 
   const user = await createUser(db, 'alice', 'password');
   const session = createSession(db, user.id);
