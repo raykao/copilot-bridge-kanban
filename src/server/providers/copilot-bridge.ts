@@ -1,23 +1,28 @@
-import { CardSessionManager, type DispatchCallbacks } from '../card-session-manager.js';
+import { AcpSessionManager } from '../acp-session-manager.js';
+import type { DispatchCallbacks } from '../card-session-manager.js';
 import type { AgentProvider, ProviderAgentCard, ProviderType } from './types.js';
 
 export class CopilotBridgeProvider implements AgentProvider {
   readonly type: ProviderType = 'copilot-bridge';
   readonly id: string;
   readonly baseUrl: string;
-  private readonly manager: CardSessionManager;
   private readonly apiKey: string;
+  private readonly defaultCallbacks: DispatchCallbacks;
+
+  // Populated by discover(). Maps agent name -> ACP WebSocket URL.
+  // e.g. 'bob' -> 'ws://localhost:3030/bob'
+  private agentWsUrls: Map<string, string> = new Map();
 
   constructor(
     id: string,
     baseUrl: string,
     apiKey: string | null,
-    manager: CardSessionManager,
+    callbacks: DispatchCallbacks,
   ) {
     this.id = id;
     this.baseUrl = baseUrl;
     this.apiKey = apiKey ?? '';
-    this.manager = manager;
+    this.defaultCallbacks = callbacks;
   }
 
   async discover(): Promise<ProviderAgentCard[]> {
@@ -32,11 +37,23 @@ export class CopilotBridgeProvider implements AgentProvider {
     }
 
     const body = await res.json() as { cards: ProviderAgentCard[] };
-    return body.cards.map((card) => ({
+    const cards = body.cards.map((card) => ({
       ...card,
-      providerType: 'copilot-bridge',
+      providerType: 'copilot-bridge' as ProviderType,
       providerBaseUrl: this.baseUrl,
     }));
+
+    // Extract per-agent WS URLs from the ACP+WS supportedInterface entry.
+    for (const card of cards) {
+      const wsInterface = card.supportedInterfaces?.find(
+        (i) => i.protocolBinding === 'ACP+WS',
+      );
+      if (wsInterface?.url) {
+        this.agentWsUrls.set(card.name, wsInterface.url);
+      }
+    }
+
+    return cards;
   }
 
   dispatch(
@@ -46,7 +63,25 @@ export class CopilotBridgeProvider implements AgentProvider {
     kanbanRunId: string,
     callbacks: DispatchCallbacks,
   ): void {
-    this.manager.dispatch(cardId, agentName, input, kanbanRunId);
+    const wsUrl = this.agentWsUrls.get(agentName);
+    if (!wsUrl) {
+      callbacks.onComplete(
+        cardId,
+        kanbanRunId,
+        'failed',
+        `CopilotBridgeProvider: no WS URL for agent '${agentName}'. Run discovery first.`,
+      );
+      return;
+    }
+    const manager = new AcpSessionManager(
+      {
+        url: wsUrl,
+        auto_approve: false,
+        bearerToken: this.apiKey || undefined,
+      },
+      callbacks,
+    );
+    manager.dispatch(cardId, agentName, input, kanbanRunId);
   }
 
   resumeRun(): void {

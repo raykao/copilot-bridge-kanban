@@ -8,7 +8,7 @@ import { buildSessionCallbacks, registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerPushCallbackRoutes } from './push-callback-routes.js';
 import { createServer } from './server.js';
-import { CardSessionManager, type BridgeConfig } from './card-session-manager.js';
+import { CardSessionManager } from './card-session-manager.js';
 import { listAgents } from './agents-db.js';
 import { AcpSessionManager } from './acp-session-manager.js';
 import { listActiveRunsGlobal } from './cards.js';
@@ -35,13 +35,7 @@ async function main(): Promise<void> {
 
   for (const agent of dbAgents) {
     if (agent.protocol === 'copilot-bridge') {
-      const bridgeConfig: BridgeConfig = {
-        bridgeApiUrl: agent.url,
-        bridgeApiKey: agent.api_key ?? '',
-      };
-      const mgr = new CardSessionManager(bridgeConfig, callbacks);
-      providerManagers.set(agent.id, mgr);
-      registry.register(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key, mgr));
+      registry.register(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key, callbacks));
     } else if (agent.protocol === 'generic-acp') {
       registry.register(new GenericAcpProvider(agent.id, agent.url, agent.api_key));
     } else {
