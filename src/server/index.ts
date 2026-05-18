@@ -10,13 +10,12 @@ import { registerPreferencesRoutes } from './preferences.js';
 import { registerPushCallbackRoutes } from './push-callback-routes.js';
 import { createServer } from './server.js';
 import { CardSessionManager } from './card-session-manager.js';
-import { listAgents, upsertDiscoveredAgent } from './agents-db.js';
+import { upsertDiscoveredAgent } from './agents-db.js';
 import { AcpSessionManager } from './acp-session-manager.js';
 import { listActiveRunsGlobal } from './cards.js';
 import { SseManager } from './sse.js';
 import { ProviderRegistry } from './providers/registry.js';
-import { GenericAcpProvider } from './providers/generic-acp.js';
-import { CopilotBridgeProvider } from './providers/copilot-bridge.js';
+import { buildProviderInstance } from './providers/build.js';
 import { listProviders } from './providers-db.js';
 
 async function main(): Promise<void> {
@@ -33,18 +32,12 @@ async function main(): Promise<void> {
 
   const acpManagers = new Map<string, AcpSessionManager>();
   const providerManagers = new Map<string, CardSessionManager>();
-  const dbAgents = listAgents(db);
+  const dbProviders = listProviders(db);
 
-  for (const agent of dbAgents) {
-    if (agent.protocol === 'copilot-bridge') {
-      registry.register(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key, callbacks));
-    } else if (agent.protocol === 'generic-acp') {
-      registry.register(new GenericAcpProvider(agent.id, agent.url, agent.api_key));
-    } else {
-      acpManagers.set(agent.id, new AcpSessionManager(
-        { url: agent.url, auto_approve: agent.auto_approve },
-        callbacks,
-      ));
+  for (const provider of dbProviders) {
+    const instance = buildProviderInstance(provider, callbacks);
+    if (instance) {
+      registry.register(instance);
     }
   }
 

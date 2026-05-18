@@ -16,22 +16,7 @@ import {
   deleteAgentsByProvider,
 } from './agents-db.js';
 import { ProviderRegistry } from './providers/registry.js';
-import { GenericAcpProvider } from './providers/generic-acp.js';
-import { CopilotBridgeProvider } from './providers/copilot-bridge.js';
-import type { AgentProvider } from './providers/types.js';
-
-function buildProviderInstance(
-  provider: Provider,
-  callbacks: DispatchCallbacks,
-): AgentProvider | null {
-  if (provider.type === 'copilot-bridge') {
-    return new CopilotBridgeProvider(provider.id, provider.url, provider.api_key, callbacks);
-  }
-  if (provider.type === 'acp') {
-    return new GenericAcpProvider(provider.id, provider.url, provider.api_key);
-  }
-  return null;
-}
+import { buildProviderInstance } from './providers/build.js';
 
 export function registerProviderAdminRoutes(
   app: FastifyInstance,
