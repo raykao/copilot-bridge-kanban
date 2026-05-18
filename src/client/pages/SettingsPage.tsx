@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { api, getErrorMessage } from '@/api/client';
-import type { AdminAgent, ProviderConnectionStatus, ProviderStatusEntry } from '@/api/types';
+import type {
+  AdminProvider,
+  AdminProviderDiscoveredAgent,
+  AdminProviderRegistryStatus,
+} from '@/api/types';
 import { ErrorState } from '@/components/ErrorState';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,32 +26,28 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-const adminAgentsQueryKey = ['admin', 'agents'] as const;
-const providerStatusQueryKey = ['agents', 'provider-status'] as const;
-const providerTypes = ['generic-acp', 'copilot-bridge'] as const;
+const adminProvidersQueryKey = ['admin', 'providers'] as const;
+const providerTypes = ['acp', 'copilot-bridge'] as const;
 type ProviderType = (typeof providerTypes)[number];
 
 interface ProviderFormState {
-  name: string;
-  protocol: ProviderType;
+  label: string;
+  type: ProviderType;
   url: string;
   apiKey: string;
-  autoApprove: boolean;
 }
 
 const initialFormState: ProviderFormState = {
-  name: '',
-  protocol: 'generic-acp',
+  label: '',
+  type: 'acp',
   url: '',
   apiKey: '',
-  autoApprove: false,
 };
 
-function formatProviderType(protocol: string): string {
-  if (protocol === 'generic-acp') return 'Generic ACP';
-  if (protocol === 'copilot-bridge') return 'Copilot Bridge';
-  if (protocol === 'acp') return 'ACP';
-  return protocol;
+function formatProviderType(type: string): string {
+  if (type === 'acp') return 'ACP';
+  if (type === 'copilot-bridge') return 'Copilot Bridge';
+  return type;
 }
 
 function SettingsPageSkeleton() {
@@ -66,7 +66,7 @@ function SettingsPageSkeleton() {
           <Table>
             <TableHeader>
               <TableRow>
-                {Array.from({ length: 5 }).map((_, index) => (
+                {Array.from({ length: 6 }).map((_, index) => (
                   <TableHead key={index}>
                     <Skeleton className="h-4 w-24" />
                   </TableHead>
@@ -76,7 +76,7 @@ function SettingsPageSkeleton() {
             <TableBody>
               {Array.from({ length: 4 }).map((_, rowIndex) => (
                 <TableRow key={rowIndex}>
-                  {Array.from({ length: 5 }).map((_, cellIndex) => (
+                  {Array.from({ length: 6 }).map((_, cellIndex) => (
                     <TableCell key={cellIndex}>
                       <Skeleton className="h-5 w-full" />
                     </TableCell>
@@ -91,7 +91,7 @@ function SettingsPageSkeleton() {
   );
 }
 
-function StatusBadge({ status }: { status?: ProviderConnectionStatus }) {
+function StatusBadge({ status }: { status?: AdminProviderRegistryStatus }) {
   if (!status || status === 'discovering') {
     return <Badge variant="secondary">Connecting...</Badge>;
   }
@@ -101,47 +101,84 @@ function StatusBadge({ status }: { status?: ProviderConnectionStatus }) {
   return <Badge variant="destructive">Offline</Badge>;
 }
 
+function AgentsList({ agents }: { agents: AdminProviderDiscoveredAgent[] }) {
+  if (agents.length === 0) {
+    return <span className="text-sm text-muted-foreground">No discovered agents.</span>;
+  }
+
+  return (
+    <ul className="space-y-1 text-sm">
+      {agents.map((agent) => (
+        <li key={agent.id} className="flex items-center gap-2">
+          <span className="font-medium">{agent.name}</span>
+          {agent.description ? (
+            <span className="text-muted-foreground">{agent.description}</span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function ProviderRow({
-  agent,
+  provider,
   deleting,
   onDelete,
-  statusEntry,
+  onRediscover,
+  rediscovering,
 }: {
-  agent: AdminAgent;
+  provider: AdminProvider;
   deleting: boolean;
-  onDelete: (agent: AdminAgent) => void;
-  statusEntry?: ProviderStatusEntry;
+  onDelete: (provider: AdminProvider) => void;
+  onRediscover: (provider: AdminProvider) => void;
+  rediscovering: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const hasAgents = (statusEntry?.agents.length ?? 0) > 0;
+  const hasAgents = provider.agent_count > 0;
+  const detailQuery = useQuery({
+    queryKey: ['admin', 'providers', provider.id, 'detail'],
+    queryFn: () => api.admin.providers.get(provider.id),
+    enabled: expanded,
+  });
 
   return (
     <>
       <TableRow>
-        <TableCell className="font-medium">{agent.name ?? agent.url}</TableCell>
-        <TableCell>{formatProviderType(agent.protocol)}</TableCell>
-        <TableCell className="max-w-md truncate" title={agent.url}>
-          {agent.url}
+        <TableCell className="font-medium">{provider.label}</TableCell>
+        <TableCell>{formatProviderType(provider.type)}</TableCell>
+        <TableCell className="max-w-md truncate" title={provider.url}>
+          {provider.url}
         </TableCell>
         <TableCell>
-          <StatusBadge status={statusEntry?.status} />
+          <StatusBadge status={provider.registry_status} />
         </TableCell>
-        <TableCell>{agent.auto_approve ? 'Yes' : 'No'}</TableCell>
+        <TableCell>{provider.agent_count}</TableCell>
         <TableCell>
-          <div className="flex gap-2">
-            {hasAgents && (
+          <div className="flex flex-wrap gap-2">
+            {hasAgents ? (
               <Button
-                onClick={() => setExpanded((e) => !e)}
+                aria-label={expanded ? 'Collapse agents' : 'Expand agents'}
+                onClick={() => setExpanded((current) => !current)}
                 size="sm"
                 type="button"
                 variant="ghost"
               >
                 {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
               </Button>
-            )}
+            ) : null}
+            <Button
+              disabled={rediscovering}
+              onClick={() => onRediscover(provider)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <RefreshCw />
+              {rediscovering ? 'Re-discovering...' : 'Re-discover'}
+            </Button>
             <Button
               disabled={deleting}
-              onClick={() => onDelete(agent)}
+              onClick={() => onDelete(provider)}
               size="sm"
               type="button"
               variant="destructive"
@@ -152,22 +189,21 @@ function ProviderRow({
           </div>
         </TableCell>
       </TableRow>
-      {expanded && hasAgents && (
+      {expanded && hasAgents ? (
         <TableRow>
           <TableCell colSpan={6} className="bg-muted/30 py-2 pl-8">
-            <ul className="space-y-1 text-sm">
-              {statusEntry!.agents.map((a) => (
-                <li key={a.name} className="flex items-center gap-2">
-                  <span className="font-medium">{a.name}</span>
-                  {a.description && (
-                    <span className="text-muted-foreground">{a.description}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
+            {detailQuery.isPending ? (
+              <span className="text-sm text-muted-foreground">Loading agents...</span>
+            ) : detailQuery.isError ? (
+              <span className="text-sm text-destructive">
+                {getErrorMessage(detailQuery.error, 'Failed to load agents.')}
+              </span>
+            ) : (
+              <AgentsList agents={detailQuery.data.agents} />
+            )}
           </TableCell>
         </TableRow>
-      )}
+      ) : null}
     </>
   );
 }
@@ -198,32 +234,32 @@ function AddProviderForm({
         <form className="grid gap-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="provider-name">Label <span className="text-muted-foreground">(optional)</span></Label>
+              <Label htmlFor="provider-label">Label <span className="text-muted-foreground">(optional)</span></Label>
               <Input
-                id="provider-name"
-                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                id="provider-label"
+                onChange={(event) => setForm((current) => ({ ...current, label: event.target.value }))}
                 placeholder="Optional label"
-                value={form.name}
+                value={form.label}
               />
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="provider-protocol">Type *</Label>
+              <Label htmlFor="provider-type">Type *</Label>
               <Select
                 onValueChange={(value) => {
-                  if (value === 'generic-acp' || value === 'copilot-bridge') {
-                    setForm((current) => ({ ...current, protocol: value }));
+                  if (value === 'acp' || value === 'copilot-bridge') {
+                    setForm((current) => ({ ...current, type: value }));
                   }
                 }}
-                value={form.protocol}
+                value={form.type}
               >
-                <SelectTrigger className="w-full" id="provider-protocol">
+                <SelectTrigger className="w-full" id="provider-type">
                   <SelectValue placeholder="Select provider type" />
                 </SelectTrigger>
                 <SelectContent>
-                  {providerTypes.map((protocol) => (
-                    <SelectItem key={protocol} value={protocol}>
-                      {formatProviderType(protocol)}
+                  {providerTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {formatProviderType(type)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -256,16 +292,6 @@ function AddProviderForm({
             </div>
           </div>
 
-          <Label className="w-fit">
-            <input
-              checked={form.autoApprove}
-              className="size-4 rounded border-input accent-primary"
-              onChange={(event) => setForm((current) => ({ ...current, autoApprove: event.target.checked }))}
-              type="checkbox"
-            />
-            Auto-approve
-          </Label>
-
           <p className="text-sm text-muted-foreground">* Required</p>
 
           <div className="flex flex-wrap gap-2">
@@ -286,74 +312,70 @@ export function SettingsPage() {
   const queryClient = useQueryClient();
   const [showAddForm, setShowAddForm] = useState(false);
 
-  const agentsQuery = useQuery({
-    queryKey: adminAgentsQueryKey,
-    queryFn: () => api.admin.agents.list(),
-  });
-
-  const statusQuery = useQuery({
-    queryKey: providerStatusQueryKey,
-    queryFn: () => api.agents.providerStatus(),
-    refetchInterval: 30_000,
+  const providersQuery = useQuery({
+    queryKey: adminProvidersQueryKey,
+    queryFn: () => api.admin.providers.list(),
+    refetchInterval: 15_000,
   });
 
   const createMutation = useMutation({
-    mutationFn: (form: ProviderFormState) => {
-      const apiKey = form.apiKey.trim();
-
-      return api.admin.agents.create({
-        name: form.name.trim(),
-        protocol: form.protocol,
-        url: form.url.trim(),
-        api_key: apiKey || undefined,
-        auto_approve: form.autoApprove,
-      });
-    },
+    mutationFn: (form: ProviderFormState) => api.admin.providers.create({
+      type: form.type,
+      label: form.label.trim() || undefined,
+      url: form.url.trim(),
+      api_key: form.apiKey.trim() || undefined,
+    }),
     onSuccess: async () => {
       toast.success('Provider added');
       setShowAddForm(false);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: adminAgentsQueryKey }),
-        queryClient.invalidateQueries({ queryKey: providerStatusQueryKey }),
-      ]);
+      await queryClient.invalidateQueries({ queryKey: adminProvidersQueryKey });
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.admin.agents.delete(id),
+    mutationFn: (id: string) => api.admin.providers.delete(id),
     onSuccess: async () => {
       toast.success('Provider deleted');
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: adminAgentsQueryKey }),
-        queryClient.invalidateQueries({ queryKey: providerStatusQueryKey }),
-      ]);
+      await queryClient.invalidateQueries({ queryKey: adminProvidersQueryKey });
     },
   });
 
-  function handleDelete(agent: AdminAgent) {
-    if (window.confirm(`Delete agent ${agent.name ?? agent.url}?`)) {
-      deleteMutation.mutate(agent.id);
+  const rediscoverMutation = useMutation({
+    mutationFn: (id: string) => api.admin.providers.triggerDiscover(id),
+    onSuccess: async () => {
+      toast.success('Re-discovery triggered');
+      await queryClient.invalidateQueries({ queryKey: adminProvidersQueryKey });
+    },
+  });
+
+  function handleDelete(provider: AdminProvider) {
+    if (window.confirm(`Delete provider ${provider.label}? This will remove all discovered agents under it.`)) {
+      deleteMutation.mutate(provider.id);
     }
   }
 
-  if (agentsQuery.isPending) {
+  function handleRediscover(provider: AdminProvider) {
+    rediscoverMutation.mutate(provider.id);
+  }
+
+  if (providersQuery.isPending) {
     return <SettingsPageSkeleton />;
   }
 
-  if (agentsQuery.isError) {
+  if (providersQuery.isError) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <ErrorState
-          message={getErrorMessage(agentsQuery.error, 'Failed to load agent providers.')}
+          message={getErrorMessage(providersQuery.error, 'Failed to load agent providers.')}
           onRetry={() => {
-            void agentsQuery.refetch();
+            void providersQuery.refetch();
           }}
         />
       </div>
     );
   }
 
-  const agents = agentsQuery.data.agents;
+  const providers = providersQuery.data.providers;
 
   return (
     <div className="flex h-full min-w-0 flex-col gap-4">
@@ -367,8 +389,10 @@ export function SettingsPage() {
       <Card>
         <CardHeader className="gap-3 sm:flex sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle>Agent Providers</CardTitle>
-            <CardDescription>View, add, and delete provider endpoints.</CardDescription>
+            <CardTitle>Providers</CardTitle>
+            <CardDescription>
+              View, add, and delete provider endpoints. Discovered agents appear under each provider.
+            </CardDescription>
           </div>
           <Button
             className="min-h-11 w-full sm:w-auto"
@@ -387,19 +411,20 @@ export function SettingsPage() {
                 <TableHead>Type</TableHead>
                 <TableHead>URL</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Auto-approve</TableHead>
+                <TableHead>Agents</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {agents.length > 0 ? (
-                agents.map((agent) => (
+              {providers.length > 0 ? (
+                providers.map((provider) => (
                   <ProviderRow
-                    agent={agent}
                     deleting={deleteMutation.isPending}
-                    key={agent.id}
+                    key={provider.id}
                     onDelete={handleDelete}
-                    statusEntry={statusQuery.data?.providers.find((p) => p.id === agent.id)}
+                    onRediscover={handleRediscover}
+                    provider={provider}
+                    rediscovering={rediscoverMutation.isPending}
                   />
                 ))
               ) : (

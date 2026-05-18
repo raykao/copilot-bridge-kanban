@@ -1,5 +1,7 @@
 import type {
   AdminAgent,
+  AdminProvider,
+  AdminProviderDetail,
   Agent,
   AgentCard,
   AgentTokenCreateResult,
@@ -35,6 +37,12 @@ type AdminAgentCreate = {
 type AdminAgentUpdate = Partial<
   Pick<AdminAgent, 'name' | 'protocol' | 'url' | 'api_key' | 'auto_approve'>
 >;
+type AdminProviderCreate = {
+  type: 'acp' | 'copilot-bridge';
+  label?: string;
+  url: string;
+  api_key?: string;
+};
 
 export class ApiError extends Error {
   constructor(
@@ -224,6 +232,36 @@ const admin = {
       await apiFetch<void>(`/api/admin/agents/${encodeURIComponent(id)}`, {
         method: 'DELETE',
       });
+    },
+  },
+
+  providers: {
+    list(): Promise<{ providers: AdminProvider[] }> {
+      return apiFetch<{ providers: AdminProvider[] }>('/api/admin/providers');
+    },
+
+    get(id: string): Promise<AdminProviderDetail> {
+      return apiFetch<AdminProviderDetail>(`/api/admin/providers/${encodeURIComponent(id)}`);
+    },
+
+    create(body: AdminProviderCreate): Promise<{ provider: AdminProvider }> {
+      return apiFetch<{ provider: AdminProvider }>('/api/admin/providers', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
+    async delete(id: string): Promise<void> {
+      await apiFetch<void>(`/api/admin/providers/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+    },
+
+    async triggerDiscover(id: string): Promise<void> {
+      await apiFetch<{ status: string }>(
+        `/api/admin/providers/${encodeURIComponent(id)}/discover`,
+        { method: 'POST' },
+      );
     },
   },
 };

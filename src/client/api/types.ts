@@ -69,6 +69,49 @@ export interface AdminAgent {
   created_at: string;
 }
 
+export type AdminProviderType = 'acp' | 'copilot-bridge';
+
+export type AdminProviderDbStatus =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'error';
+
+export type AdminProviderRegistryStatus =
+  | 'discovering'
+  | 'connected'
+  | 'disconnected'
+  | 'unknown';
+
+export interface AdminProvider {
+  id: string;
+  type: AdminProviderType;
+  label: string;
+  url: string;
+  ws_url: string | null;
+  api_key: string | null;
+  status: AdminProviderDbStatus;
+  last_discovered_at: string | null;
+  created_at: string;
+  registry_status: AdminProviderRegistryStatus;
+  agent_count: number;
+  last_error: string | null;
+}
+
+export interface AdminProviderDiscoveredAgent {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+export interface AdminProviderDetail {
+  provider: AdminProvider;
+  agents: AdminProviderDiscoveredAgent[];
+  registry_status: AdminProviderRegistryStatus;
+  last_error: string | null;
+}
+
 export interface ProviderStatusAgent {
   name: string;
   description: string;
