@@ -8,6 +8,7 @@ import migration006 from './006-agents-name-nullable.js';
 import migration007 from './007-runs-provider-id.js';
 import migration008 from './008-providers-table.js';
 import migration009 from './009-agents-provider-id.js';
+import migration010 from './010-backfill-providers-from-agents.js';
 
 export const migrations: Migration[] = [
   migration001,
@@ -19,4 +20,5 @@ export const migrations: Migration[] = [
   migration007,
   migration008,
   migration009,
+  migration010,
 ];

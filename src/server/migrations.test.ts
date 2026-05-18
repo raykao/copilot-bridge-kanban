@@ -91,11 +91,11 @@ describe('runMigrations', () => {
     expect(getUserVersion(db)).toBe(0);
   });
 
-  it('fresh DB starts user_version=9 and agent_tokens has nullable card_id and agents has nullable api_key', () => {
+  it('fresh DB starts user_version=10 and agent_tokens has nullable card_id and agents has nullable api_key', () => {
     const db = createDatabase(':memory:');
     initializeSchema(db);
 
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     expect(getColumnNames(db, 'agent_tokens')).toContain('card_id');
     expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(getColumnNames(db, 'agents')).toContain('api_key');
@@ -126,7 +126,7 @@ describe('runMigrations', () => {
     const count = db.prepare('SELECT COUNT(*) AS c FROM agent_tokens').get() as { c: number };
     const indexes = (db.prepare('PRAGMA index_list(agent_tokens)').all() as Array<{ name: string }>).map((r) => r.name);
 
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     expect(getColumnNames(db, 'agent_tokens')).toContain('card_id');
     expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(getColumnNames(db, 'agents')).toContain('api_key');
@@ -176,7 +176,7 @@ describe('runMigrations', () => {
       .prepare('SELECT id, agent_name, token_hash, card_id, created_at FROM agent_tokens ORDER BY id')
       .all();
 
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     expect(getColumn(db, 'agent_tokens', 'card_id').notnull).toBe(0);
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
@@ -201,7 +201,7 @@ describe('runMigrations', () => {
 });
 
 describe('migrations', () => {
-  it('fresh DB (from initializeSchema): bridge_run_id, acp_session_id, api_key, provider_id present, no bridge_session_id, user_version=9', () => {
+  it('fresh DB (from initializeSchema): bridge_run_id, acp_session_id, api_key, provider_id present, no bridge_session_id, user_version=10', () => {
     const db = createDatabase(':memory:');
     initializeSchema(db);
 
@@ -213,7 +213,7 @@ describe('migrations', () => {
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
     expect(getColumn(db, 'agents', 'name').notnull).toBe(0);
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
   });
 
   it('pre-Phase-B DB: renames bridge_session_id to bridge_run_id', () => {
@@ -247,7 +247,7 @@ describe('migrations', () => {
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
     expect(getColumn(db, 'agents', 'name').notnull).toBe(0);
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
 
     const row = db.prepare('SELECT bridge_run_id FROM runs WHERE id = ?').get('r1') as { bridge_run_id: string };
     expect(row.bridge_run_id).toBe('abc');
@@ -285,7 +285,7 @@ describe('migrations', () => {
     expect(getColumnNames(db, 'agents')).toContain('api_key');
     expect(getColumn(db, 'agents', 'api_key').notnull).toBe(0);
     expect(getColumn(db, 'agents', 'name').notnull).toBe(0);
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
 
     const row = db.prepare('SELECT bridge_run_id FROM runs WHERE id = ?').get('r1') as { bridge_run_id: string };
     expect(row.bridge_run_id).toBe('new');
@@ -311,5 +311,52 @@ describe('migrations', () => {
     initializeSchema(db);
     const cols = getColumnNames(db, 'agents');
     expect(cols).toContain('provider_id');
+  });
+
+  it('migration 010 backfills providers from agents with NULL provider_id', async () => {
+    const db = new Database(':memory:');
+    // Manually run migrations 001-009 to set up a pre-010 state, then insert
+    // an unlinked agent, then run migration 010.
+    createLegacyAgentTokensTable(db);
+    db.exec(`
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'created',
+        bridge_run_id TEXT,
+        input_comment_id TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        finished_at TEXT
+      )
+    `);
+    const all = await import('./migrations/index.js');
+    const pre = all.migrations.filter((m) => m.version <= 9);
+    runMigrations(db, pre);
+    db.prepare(
+      `INSERT INTO agents (id, name, protocol, url, auto_approve, api_key, created_at)
+       VALUES ('a1', 'Bob', 'copilot-bridge', 'http://bridge.local:7878', 0, 'sek', ?)`,
+    ).run(new Date().toISOString());
+    db.prepare(
+      `INSERT INTO agents (id, name, protocol, url, auto_approve, api_key, created_at)
+       VALUES ('a2', NULL, 'generic-acp', 'http://acp.local:9999', 0, NULL, ?)`,
+    ).run(new Date().toISOString());
+    const mig010 = all.migrations.find((m) => m.version === 10)!;
+    runMigrations(db, [...pre, mig010]);
+    const providerRows = db.prepare('SELECT * FROM providers ORDER BY label').all() as Array<{
+      id: string; type: string; label: string; url: string; api_key: string | null;
+    }>;
+    expect(providerRows).toHaveLength(2);
+    const bobP = providerRows.find((p) => p.label === 'Bob')!;
+    expect(bobP.type).toBe('copilot-bridge');
+    expect(bobP.url).toBe('http://bridge.local:7878');
+    expect(bobP.api_key).toBe('sek');
+    const acpP = providerRows.find((p) => p.label === 'http://acp.local:9999')!;
+    expect(acpP.type).toBe('acp');
+    expect(acpP.api_key).toBeNull();
+    const agentRows = db.prepare('SELECT id, provider_id FROM agents ORDER BY id').all() as Array<{ id: string; provider_id: string }>;
+    expect(agentRows[0].provider_id).toBe(bobP.id);
+    expect(agentRows[1].provider_id).toBe(acpP.id);
   });
 });
