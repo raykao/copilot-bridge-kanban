@@ -8,7 +8,7 @@ import { buildSessionCallbacks, registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerPushCallbackRoutes } from './push-callback-routes.js';
 import { createServer } from './server.js';
-import { CardSessionManager } from './card-session-manager.js';
+import { CardSessionManager, type BridgeConfig } from './card-session-manager.js';
 import { listAgents } from './agents-db.js';
 import { AcpSessionManager } from './acp-session-manager.js';
 import { listActiveRunsGlobal } from './cards.js';
@@ -28,31 +28,28 @@ async function main(): Promise<void> {
   sseManager.startHeartbeat();
 
   const callbacks = buildSessionCallbacks(db, sseManager);
-  const cardSessionManager = new CardSessionManager(config, callbacks);
 
   const acpManagers = new Map<string, AcpSessionManager>();
+  const providerManagers = new Map<string, CardSessionManager>();
   const dbAgents = listAgents(db);
+
   for (const agent of dbAgents) {
-    if (agent.protocol === 'generic-acp') {
+    if (agent.protocol === 'copilot-bridge') {
+      const bridgeConfig: BridgeConfig = {
+        bridgeApiUrl: agent.url,
+        bridgeApiKey: agent.api_key ?? '',
+      };
+      const mgr = new CardSessionManager(bridgeConfig, callbacks);
+      providerManagers.set(agent.id, mgr);
+      registry.register(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key, mgr));
+    } else if (agent.protocol === 'generic-acp') {
       registry.register(new GenericAcpProvider(agent.id, agent.url, agent.api_key));
-    } else if (agent.protocol === 'copilot-bridge') {
-      registry.register(new CopilotBridgeProvider(agent.id, agent.url, agent.api_key, callbacks));
     } else {
       acpManagers.set(agent.id, new AcpSessionManager(
         { url: agent.url, auto_approve: agent.auto_approve },
         callbacks,
       ));
     }
-  }
-
-  // Always register the env-var bridge as a fallback provider if no DB entry already
-  // uses that URL. This ensures the Agents board shows bots even when the user has not
-  // manually added a Settings entry, and guarantees the registry uses a working key.
-  const legacyAlreadyRegistered = dbAgents.some(
-    a => a.protocol === 'copilot-bridge' && a.url.replace(/\/+$/, '') === config.bridgeApiUrl.replace(/\/+$/, ''),
-  );
-  if (!legacyAlreadyRegistered) {
-    registry.register(new CopilotBridgeProvider('__env_bridge__', config.bridgeApiUrl, config.bridgeApiKey, callbacks));
   }
 
   registry.startHealthMonitor();
@@ -66,21 +63,22 @@ async function main(): Promise<void> {
     });
   });
 
-  if (cardSessionManager) {
-    const activeRuns = listActiveRunsGlobal(db).filter(
-      (run): run is typeof run & { bridge_run_id: string } => run.bridge_run_id !== null,
-    );
-    cardSessionManager.reconnectAll(activeRuns);
+  const activeRuns = listActiveRunsGlobal(db).filter(
+    (run): run is typeof run & { bridge_run_id: string } => run.bridge_run_id !== null,
+  );
+  for (const run of activeRuns) {
+    const mgr = run.provider_id ? providerManagers.get(run.provider_id) : undefined;
+    mgr?.reconnect(run);
   }
 
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
   registerAuthRoutes(server, db);
-  registerCardRoutes(server, db, config, sseManager, cardSessionManager, acpManagers, registry);
+  registerCardRoutes(server, db, config, sseManager, providerManagers, acpManagers, registry);
   registerPushCallbackRoutes(server, db, sseManager);
   registerAgentRoutes(server, config, registry, db, sseManager);
   registerAdminRoutes(server, db);
-  registerAgentAdminRoutes(server, db, registry, callbacks);
+  registerAgentAdminRoutes(server, db, registry, callbacks, providerManagers);
   registerPreferencesRoutes(server, db);
 
   await server.listen({ host: '0.0.0.0', port: config.port });
