@@ -1,4 +1,4 @@
-import type { DispatchCallbacks } from '../card-session-manager.js';
+import type { DispatchCallbacks } from '../dispatch-types.js';
 
 export type ProviderType = 'generic-acp' | 'copilot-bridge' | 'acp';
 
@@ -42,7 +42,7 @@ export interface AgentProvider {
 
   /**
    * Start a new run for the named agent.
-   * Results are delivered via callbacks (same contract as CardSessionManager.dispatch).
+   * Results are delivered via callbacks (same contract as provider dispatch).
    */
   dispatch(
     agentName: string,

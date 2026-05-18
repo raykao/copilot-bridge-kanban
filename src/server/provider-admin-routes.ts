@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
-import type { DispatchCallbacks } from './card-session-manager.js';
+import type { DispatchCallbacks } from './dispatch-types.js';
 import {
   createProvider,
   getProvider,

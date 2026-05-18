@@ -9,10 +9,8 @@ import { buildSessionCallbacks, registerCardRoutes } from './card-routes.js';
 import { registerPreferencesRoutes } from './preferences.js';
 import { registerPushCallbackRoutes } from './push-callback-routes.js';
 import { createServer } from './server.js';
-import { CardSessionManager } from './card-session-manager.js';
 import { upsertDiscoveredAgent } from './agents-db.js';
 import { AcpSessionManager } from './acp-session-manager.js';
-import { listActiveRunsGlobal } from './cards.js';
 import { SseManager } from './sse.js';
 import { ProviderRegistry } from './providers/registry.js';
 import { buildProviderInstance } from './providers/build.js';
@@ -31,7 +29,6 @@ async function main(): Promise<void> {
   const callbacks = buildSessionCallbacks(db, sseManager);
 
   const acpManagers = new Map<string, AcpSessionManager>();
-  const providerManagers = new Map<string, CardSessionManager>();
   const dbProviders = listProviders(db);
 
   for (const provider of dbProviders) {
@@ -59,18 +56,10 @@ async function main(): Promise<void> {
     }
   });
 
-  const activeRuns = listActiveRunsGlobal(db).filter(
-    (run): run is typeof run & { bridge_run_id: string } => run.bridge_run_id !== null,
-  );
-  for (const run of activeRuns) {
-    const mgr = run.provider_id ? providerManagers.get(run.provider_id) : undefined;
-    mgr?.reconnect(run);
-  }
-
   const server = await createServer(config);
   registerSessionMiddleware(server, db);
   registerAuthRoutes(server, db);
-  registerCardRoutes(server, db, config, sseManager, providerManagers, acpManagers, registry);
+  registerCardRoutes(server, db, config, sseManager, acpManagers, registry);
   registerPushCallbackRoutes(server, db, sseManager);
   registerAgentRoutes(server, config, registry, db, sseManager);
   registerAdminRoutes(server, db);

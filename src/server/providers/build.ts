@@ -1,4 +1,4 @@
-import type { DispatchCallbacks } from '../card-session-manager.js';
+import type { DispatchCallbacks } from '../dispatch-types.js';
 import type { Provider } from '../providers-db.js';
 import type { AgentProvider } from './types.js';
 import { CopilotBridgeProvider } from './copilot-bridge.js';

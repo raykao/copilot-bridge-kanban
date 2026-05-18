@@ -3,7 +3,7 @@ import { buildProviderInstance } from './providers/build.js';
 import { CopilotBridgeProvider } from './providers/copilot-bridge.js';
 import { GenericAcpProvider } from './providers/generic-acp.js';
 import type { Provider } from './providers-db.js';
-import type { DispatchCallbacks } from './card-session-manager.js';
+import type { DispatchCallbacks } from './dispatch-types.js';
 
 const noopCallbacks = {
   onRunCreated: () => {},

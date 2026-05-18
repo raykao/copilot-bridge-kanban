@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import type { AppConfig } from './config.js';
-import type { CardSessionManager, DispatchCallbacks } from './card-session-manager.js';
+import type { DispatchCallbacks } from './dispatch-types.js';
 import { AcpSessionManager } from './acp-session-manager.js';
 import {
   createCard,
@@ -94,7 +94,6 @@ export function registerCardRoutes(
   db: Database.Database,
   config?: AppConfig,
   sseManager?: SseManager,
-  providerManagers?: Map<string, CardSessionManager>,
   acpManagers?: Map<string, AcpSessionManager>,
   registry?: ProviderRegistry,
 ): void {

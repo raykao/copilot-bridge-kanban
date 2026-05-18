@@ -1,5 +1,5 @@
 import { AcpSessionManager } from '../acp-session-manager.js';
-import type { DispatchCallbacks } from '../card-session-manager.js';
+import type { DispatchCallbacks } from '../dispatch-types.js';
 import type { AgentProvider, ProviderAgentCard, ProviderType } from './types.js';
 
 export class CopilotBridgeProvider implements AgentProvider {

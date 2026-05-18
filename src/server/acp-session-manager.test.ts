@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocketServer } from 'ws';
 import type { WebSocket as WsType } from 'ws';
 import { AcpSessionManager } from './acp-session-manager.js';
-import type { DispatchCallbacks } from './card-session-manager.js';
+import type { DispatchCallbacks } from './dispatch-types.js';
 
 function makeCallbacks(): { cbs: DispatchCallbacks; calls: Record<string, unknown[][]> } {
   const calls: Record<string, unknown[][]> = {

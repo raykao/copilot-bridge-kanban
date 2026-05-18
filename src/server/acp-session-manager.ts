@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import type { DispatchCallbacks } from './card-session-manager.js';
+import type { DispatchCallbacks } from './dispatch-types.js';
 
 export interface AcpAgentConfig {
   url: string;

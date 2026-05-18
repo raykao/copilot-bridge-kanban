@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { GenericAcpProvider } from './generic-acp.js';
-import type { DispatchCallbacks } from '../card-session-manager.js';
+import type { DispatchCallbacks } from '../dispatch-types.js';
 
 // Mock AcpSessionManager to avoid real WebSocket connections in tests.
 vi.mock('../acp-session-manager.js', () => ({

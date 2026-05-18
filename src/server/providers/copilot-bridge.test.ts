@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { CopilotBridgeProvider } from './copilot-bridge.js';
-import type { DispatchCallbacks } from '../card-session-manager.js';
+import type { DispatchCallbacks } from '../dispatch-types.js';
 
 vi.mock('../acp-session-manager.js', () => ({
   AcpSessionManager: vi.fn().mockImplementation(() => ({

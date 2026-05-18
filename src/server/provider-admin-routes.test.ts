@@ -6,7 +6,7 @@ import { ProviderRegistry } from './providers/registry.js';
 import { registerProviderAdminRoutes } from './provider-admin-routes.js';
 import { createProvider, getProvider } from './providers-db.js';
 import { listAgentsByProvider } from './agents-db.js';
-import type { DispatchCallbacks } from './card-session-manager.js';
+import type { DispatchCallbacks } from './dispatch-types.js';
 
 let db: Database.Database;
 let app: FastifyInstance;
