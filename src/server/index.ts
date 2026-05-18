@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   registerPushCallbackRoutes(server, db, sseManager);
   registerAgentRoutes(server, config, registry, db, sseManager);
   registerAdminRoutes(server, db);
-  registerAgentAdminRoutes(server, db, registry, callbacks, providerManagers);
+  registerAgentAdminRoutes(server, db);
   registerProviderAdminRoutes(server, db, registry, callbacks);
   registerPreferencesRoutes(server, db);
 
