@@ -461,3 +461,69 @@ File in `raykao/copilot-bridge` explaining the HTTP adapter approach is supersed
 
 Do NOT delete stale branches before the new branch is validated - they are the fallback if something needs to be recovered.
 
+
+
+---
+
+## 14. Design Revision (2026-05-17)
+
+The following decisions were made after the original plan and supersede any
+conflicting guidance above.
+
+### Providers table (new)
+
+A separate `providers` table replaces the implicit provider-in-agents model.
+All provider connection configs live here. `label` is required -- users must
+name each connection explicitly.
+
+```
+providers: id, type, label (required), url, ws_url, api_key, status, last_discovered_at
+agents:    id, name, protocol, url, auto_approve, api_key, provider_id -> providers.id
+```
+
+Rationale: cleaner separation between "connection config" (providers) and
+"dispatch target" (agents). Extensible without schema churn. The `agents`
+table stays uniform regardless of how the agent was discovered.
+
+### Single-URL model for copilot-bridge
+
+The user configures ONE URL for a `copilot-bridge` provider: the HTTP adapter
+URL (e.g. `http://localhost:7878`). The ACP WebSocket URL is NOT manually
+configured -- it is auto-discovered from the catalog response.
+
+Bridge change required: `GET /v1/agents/cards` response adds `acpWsUrl` field,
+sourced from `platforms.acp.port` in `config.json`.
+
+If the bridge restarts on a different ACP port, the next discovery cycle
+updates `providers.ws_url` and reconnects `AcpSessionManager` instances.
+
+### Dispatch is always AcpSessionManager
+
+Both `acp` and `copilot-bridge` provider types dispatch via `AcpSessionManager`
+(WebSocket JSON-RPC). `CopilotBridgeProvider` and `GenericAcpProvider` are
+transitional classes that will be removed once the new provider model is
+implemented. `CardSessionManager` (HTTP SSE) and `subscribeToBridgeRunStream`
+are legacy paths, not the target architecture.
+
+### Settings UI
+
+Two sections on the Settings > Agents tab:
+
+1. Providers: one row per configured connection, status badge, add/edit/delete
+2. Agents: auto-populated from providers, `auto_approve` toggle, provider label shown
+
+### Retry and connection state
+
+Status values: `disconnected | connecting | connected | reconnecting`
+
+- copilot-bridge: HTTP discovery loop drives status. Exponential backoff
+  (2s base, 2x multiplier, 60s cap, unlimited retries).
+- Both types: `AcpSessionManager` WS reconnect uses same backoff curve.
+- Status changes emitted via `provider.status_changed` SSE event to browser.
+
+### Protocol type cleanup
+
+`generic-acp` protocol is deprecated. It used `subscribeToBridgeRunStream`
+(HTTP SSE) which is not standard ACP. It is replaced by `acp` type with
+`AcpSessionManager` dispatch. Migration: existing `generic-acp` rows are
+updated to `acp` protocol; `GenericAcpProvider` class is removed.

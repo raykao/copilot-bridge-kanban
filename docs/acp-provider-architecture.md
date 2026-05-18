@@ -1,190 +1,272 @@
 # ACP Provider Architecture
 
+**Last updated:** 2026-05-17
+**Status:** Approved design, pending implementation
+
+---
+
 ## Overview
 
-Kanban is designed to work with any ACP-compatible agent, not just copilot-bridge.
-This document describes the provider abstraction that makes this possible, explains
-the standard contract every provider must follow, and documents how to add a new
-provider when an agent deviates from or extends the base ACP spec.
+Kanban supports two provider types for connecting to agents:
+
+| Type | Description | Discovery | Dispatch |
+|------|-------------|-----------|----------|
+| `acp` | Standard ACP-compliant agent (one agent per endpoint) | `GET /.well-known/agent-card.json` | WebSocket JSON-RPC |
+| `copilot-bridge` | Multi-agent host (N agents behind one server) | `GET /v1/agents/cards` catalog | WebSocket JSON-RPC per bot path |
+
+Both types use WebSocket JSON-RPC (ACP protocol) for dispatch. The difference is
+discovery and how agent URLs are derived.
 
 ---
 
-## The Problem
+## Database Schema
 
-The A2A/ACP spec defines how agents advertise themselves and accept work, but it
-does not define how a client discovers *which agents exist* on a server. Different
-implementations make different choices:
+### `providers` table (new)
 
-| Agent | Discovery | Dispatch |
-|-------|-----------|----------|
-| Standard ACP | `GET <baseUrl>/.well-known/agent-card.json` (one agent per URL) | Run URL taken from `card.supportedInterfaces[0].url` |
-| copilot-bridge | `GET <baseUrl>/v1/agents/cards` catalog (N agents, one URL) | `POST <baseUrl>/runs` with `agent_name` in body |
-
-Without an abstraction layer, kanban is coupled to a single provider's conventions.
-
----
-
-## Architecture
-
-```
-AgentProvider (interface)
-  |
-  +-- GenericAcpProvider        (standard ACP - one agent per URL)
-        |
-        +-- CopilotBridgeProvider  (overrides discovery + dispatch)
-```
-
-### AgentProvider interface
-
-Every provider implements:
-
-```ts
-interface AgentProvider {
-  id: string;        // DB row id
-  type: string;      // 'generic-acp' | 'copilot-bridge' | ...
-  label: string;     // display name shown in UI
-  baseUrl: string;
-
-  // Return all agents this provider exposes.
-  discover(): Promise<AgentCard[]>;
-
-  // Start a new run. Returns a run ID for streaming/resuming.
-  createRun(
-    agentCard: AgentCard,
-    input: string,
-    sessionId?: string,
-  ): Promise<{ runId: string }>;
-
-  // Stream events for an in-progress run.
-  streamEvents(runId: string): AsyncIterable<AcpEvent>;
-
-  // Resume a run that is waiting for user input (e.g. permission approval).
-  resumeRun(runId: string, response: ResumePayload): Promise<void>;
-}
-```
-
-`AgentCard` carries a `provider` reference so kanban always knows which provider
-to route dispatch calls to for a given card.
-
----
-
-## GenericAcpProvider (standard contract)
-
-Implements the A2A spec as written. Use this for any agent that fully follows
-the spec without customisation.
-
-### Discovery
-
-```
-GET <baseUrl>/.well-known/agent-card.json
-```
-
-Returns a single `AgentCard`. One URL = one agent.
-
-### Dispatch
-
-The run URL is read from the card itself:
-
-```
-card.supportedInterfaces[0].url
-```
-
-The provider never assumes a specific path - it uses whatever the card advertises.
-
-### Auth
-
-Bearer token supplied in provider config, sent as `Authorization: Bearer <token>`.
-
----
-
-## CopilotBridgeProvider
-
-Extends `GenericAcpProvider` and overrides two methods. Both deviations exist
-because copilot-bridge hosts multiple agents behind a single base URL.
-
-### Deviation 1 - Discovery
-
-**Standard:** `GET <baseUrl>/.well-known/agent-card.json` -> one card
-
-**Bridge override:** `GET <baseUrl>/v1/agents/cards` -> `{ cards: AgentCard[] }`
-
-Rationale: bridge is a multi-agent host. A single `.well-known/` path cannot
-represent N agents. The catalog endpoint returns all agents the API key can access.
-
-Individual cards are still available at:
-```
-GET <baseUrl>/agents/<name>/.well-known/agent-card.json
-```
-
-### Deviation 2 - Dispatch
-
-**Standard:** POST to `card.supportedInterfaces[0].url` (per-agent URL from card)
-
-**Bridge override:** `POST <baseUrl>/runs` with `agent_name` in request body
-
-```json
-{
-  "agent_name": "bob",
-  "input": "...",
-  "session_id": "..."
-}
-```
-
-Rationale: bridge multiplexes all agents on a single `/runs` endpoint and uses
-`agent_name` to route internally, rather than exposing per-agent run URLs.
-
----
-
-## Provider registry
-
-Providers are stored in the `providers` DB table:
+One row per configured connection. The `label` field is required -- it is the
+human-readable name the user assigns when adding a provider in Settings.
 
 ```sql
 CREATE TABLE providers (
-  id       TEXT PRIMARY KEY,
-  type     TEXT NOT NULL,       -- 'generic-acp' | 'copilot-bridge'
-  label    TEXT NOT NULL,
-  base_url TEXT NOT NULL,
-  api_key  TEXT,
-  enabled  INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL
+  id               TEXT PRIMARY KEY,
+  type             TEXT NOT NULL CHECK(type IN ('acp', 'copilot-bridge')),
+  label            TEXT NOT NULL,       -- user-assigned, e.g. "Local Dev Bridge"
+  url              TEXT NOT NULL,       -- acp: ws://host:port  copilot-bridge: http://host:port
+  ws_url           TEXT,                -- copilot-bridge only: auto-filled from discovery
+  api_key          TEXT,
+  status           TEXT NOT NULL DEFAULT 'disconnected',
+                                        -- disconnected | connecting | connected | reconnecting
+  last_discovered_at TEXT,
+  created_at       TEXT NOT NULL
 );
 ```
 
-On startup, the existing bridge URL from env is seeded as a `copilot-bridge` row.
-Additional providers are added via the Settings UI.
+### `agents` table (updated)
 
-On board load, kanban calls `discover()` on all enabled providers in parallel and
-merges the resulting agent cards into the column list.
+Gains a `provider_id` FK. All agents -- whether manually configured or
+auto-discovered -- live in this table.
+
+```sql
+ALTER TABLE agents ADD COLUMN provider_id TEXT REFERENCES providers(id) ON DELETE CASCADE;
+```
+
+`provider_id` is NULL for legacy rows only. All new agents are created with a
+`provider_id` pointing to their parent provider.
 
 ---
 
-## Adding a new provider
+## Provider Type: `acp`
 
-1. Create `src/server/providers/<name>.ts` that implements `AgentProvider`.
-2. Start with `GenericAcpProvider` as the base class.
-3. Override only the methods that differ from the standard. For each override,
-   add a comment block with this structure:
+### Purpose
 
-```ts
-/**
- * DEVIATION from GenericAcpProvider.discover()
- *
- * Standard: GET <baseUrl>/.well-known/agent-card.json -> single card
- * This override: <describe what this provider does instead>
- * Reason: <why the provider works this way>
- */
+Standard ACP-compliant external agents: Claude Code, GitHub Copilot CLI,
+Codex CLI, or any agent implementing the ACP spec.
+
+### User configuration (Settings)
+
+| Field | Example | Notes |
+|-------|---------|-------|
+| Label | "Claude Code" | Required, user-chosen |
+| Type | acp | |
+| URL | ws://localhost:5000 | The agent's WebSocket ACP endpoint |
+| API key | (optional) | Sent as Bearer token on WS upgrade |
+
+### On save
+
+Kanban creates one `providers` row and one `agents` row (1:1). The agent URL
+is the same as the provider URL.
+
+### Discovery
+
+`GET <url-with-http-scheme>/.well-known/agent-card.json` is called once on
+save and on reconnect to verify the agent is reachable and retrieve its card
+metadata (name, capabilities, skills). The WS URL itself is configured
+directly by the user -- the `.well-known` fetch is for metadata only.
+
+### Dispatch
+
+`AcpSessionManager` opens a WebSocket connection to `provider.url` and
+dispatches via ACP JSON-RPC (`session/new`, `session/prompt`, etc.).
+
+---
+
+## Provider Type: `copilot-bridge`
+
+### Purpose
+
+copilot-bridge is a multi-agent host. One server exposes N agents. Kanban
+connects to the bridge and auto-discovers all agents from a catalog endpoint.
+
+### User configuration (Settings)
+
+| Field | Example | Notes |
+|-------|---------|-------|
+| Label | "Local Dev Bridge" | Required, user-chosen |
+| Type | copilot-bridge | |
+| URL | http://localhost:7878 | Bridge HTTP adapter URL -- this is the ONLY URL the user enters |
+| API key | (optional) | Sent as Bearer token on HTTP + WS |
+
+The WebSocket URL is NOT configured by the user. It is auto-discovered
+from the catalog response (see below).
+
+### Discovery flow
+
+```
+1. GET http://localhost:7878/v1/agents/cards
+   Response: {
+     acpWsUrl: "ws://localhost:3030",   <- bridge advertises its ACP WS port
+     cards: [ { name: "bob", ... }, { name: "homer", ... }, ... ]
+   }
+
+2. Kanban saves acpWsUrl to providers.ws_url
+
+3. For each card:
+   UPSERT agents SET url = acpWsUrl + "/" + card.name
+                       WHERE provider_id = this.provider.id AND name = card.name
+
+4. Agents in DB but absent from catalog -> mark inactive (soft-delete)
+
+5. providers.status = "connected", providers.last_discovered_at = now()
 ```
 
-4. Add the new type string to the `ProviderType` union in `src/server/providers/types.ts`.
-5. Register the factory in `src/server/providers/registry.ts`.
-6. Add a row to the deviation table in this document.
+### Dispatch
 
-### Known provider deviations
+For each agent under a `copilot-bridge` provider, dispatch uses
+`AcpSessionManager` with `url = ws://localhost:3030/bob`. This is the same
+`AcpSessionManager` used by `acp` type providers -- the dispatch path is
+identical once the agent URL is resolved.
 
-| Provider | Method | Deviation | Reason |
-|----------|--------|-----------|--------|
-| `copilot-bridge` | `discover()` | Catalog endpoint, returns N cards | Multi-agent host |
-| `copilot-bridge` | `createRun()` | Single `/runs` endpoint, `agent_name` in body | Agent multiplexing |
+### Per-agent well-known cards
 
-Update this table whenever a new provider introduces a deviation.
+The bridge also exposes `GET /agents/:name/.well-known/agent-card.json` for
+individual agent cards. Kanban does not use this for discovery (the catalog
+is sufficient), but it is available for future A2A compatibility.
+
+---
+
+## State Machine
+
+Each provider has a `status` field that drives the UI indicator and dispatch
+behavior.
+
+```
+disconnected
+     |
+     | (startup / user adds provider)
+     v
+  connecting
+     |
+     | HTTP discovery succeeds, WS handshake OK
+     v
+  connected  <--------+
+     |                |
+     | HTTP or WS     | reconnect succeeds
+     | connection     |
+     | drops          |
+     v                |
+ reconnecting --------+
+     |
+     | max retries exceeded (not implemented - retry is unlimited)
+     v
+ disconnected
+```
+
+| Status | UI indicator | Card dispatch |
+|--------|-------------|---------------|
+| connected | Green dot | Normal |
+| connecting | Spinner | Queued |
+| reconnecting | Yellow dot + "Reconnecting..." | Blocked with message |
+| disconnected | Red dot | Blocked with message |
+
+---
+
+## Retry / Reconnect
+
+### HTTP discovery retry (copilot-bridge)
+
+Exponential backoff on the discovery poll loop:
+
+- Base delay: 2s
+- Multiplier: 2x
+- Cap: 60s
+- Retries: unlimited
+
+On each successful discovery: reset backoff, update `ws_url` if it changed,
+upsert agents, set status `connected`.
+
+If `ws_url` changes between discovery cycles (bridge restarted on a different
+ACP port): existing `AcpSessionManager` WS connections are closed and
+re-opened to the new WS URL. In-flight card runs are marked `interrupted`.
+
+### WS reconnect (both types)
+
+`AcpSessionManager` maintains a persistent WS connection per agent. If the
+connection drops mid-session:
+
+- Exponential backoff reconnect (same curve as above)
+- If the agent advertises `sessionCapabilities.resume`: attempt `session/resume`
+  on reconnect
+- If not: mark card as `interrupted`, show re-dispatch button in UI
+
+---
+
+## Settings UI Layout
+
+```
+Providers
++----------------------------------------------------------------------+
+| Label              Type             URL                   Status     |
+| Local Dev Bridge   copilot-bridge   http://localhost:7878  connected  |
+| Claude Code        acp              ws://localhost:5000    connected  |
++----------------------------------------------------------------------+
+[+ Add Provider]
+
+Agents
++----------------------------------------------------------------------+
+| Name         URL                       Provider           Status     |
+| bob          ws://localhost:3030/bob    Local Dev Bridge   connected  |
+| homer        ws://localhost:3030/homer  Local Dev Bridge   connected  |
+| claude-code  ws://localhost:5000        Claude Code        connected  |
++----------------------------------------------------------------------+
+```
+
+Agents are read-only in the UI -- they are managed by their parent provider.
+The only agent-level setting editable by the user is `auto_approve`.
+
+---
+
+## Implementation Phases
+
+### Phase P1 - DB migrations + providers API
+
+- Migration: `providers` table
+- Migration: `agents.provider_id` FK
+- Migration: `agents.ws_url` removed (moved to providers), `agents.url` updated
+- REST routes: `POST /api/providers`, `GET /api/providers`, `PATCH /api/providers/:id`,
+  `DELETE /api/providers/:id`
+- On create: trigger initial discovery
+
+### Phase P2 - copilot-bridge provider logic
+
+- `CopilotBridgeProvider.discover()`: fetch catalog, extract `acpWsUrl`, upsert agents
+- Bridge HTTP adapter: add `acpWsUrl` field to `GET /v1/agents/cards` response
+- Retry/backoff loop
+- State machine + SSE events for status changes
+
+### Phase P3 - AcpSessionManager persistent connection
+
+- One persistent WS connection per agent (not per dispatch)
+- Reconnect on drop with exponential backoff
+- `session/resume` support
+
+### Phase P4 - Settings UI
+
+- Providers section: add/edit/delete, status badge
+- Agents section: auto-populated, `auto_approve` toggle
+- Connection status badge (live via SSE)
+
+### Phase P5 - Generic ACP provider logic
+
+- `GenericAcpProvider`: fetch `.well-known/agent-card.json` for metadata
+- Use `AcpSessionManager` for dispatch (replacing `subscribeToBridgeRunStream`)
+- Remove `generic-acp` protocol type (replace with `acp`)
