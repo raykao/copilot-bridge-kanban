@@ -499,6 +499,20 @@ export function registerCardRoutes(
       return reply.send({ run_id, decision: body.decision });
     }
 
+    // Provider-dispatched ACP path: look up by run.provider_id
+    if (registry && run.provider_id) {
+      const provider = registry.get(run.provider_id);
+      if (provider) {
+        if (run.status !== 'awaiting') {
+          return reply.status(409).send({ error: 'run is not awaiting permission' });
+        }
+        updateRun(db, run_id, { status: 'running' });
+        sseManager?.emit(id, 'run.in_progress', { run_id });
+        provider.resumeRun(run_id, toAcpDecision(body.decision), callbacks);
+        return reply.send({ run_id, decision: body.decision });
+      }
+    }
+
     if (acpRunIds.has(run_id)) {
       return reply.status(409).send({ error: 'run is not awaiting permission' });
     }

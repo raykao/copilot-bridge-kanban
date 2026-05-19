@@ -1,10 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { CopilotBridgeProvider } from './copilot-bridge.js';
 import type { DispatchCallbacks } from '../dispatch-types.js';
+import { AcpSessionManager } from '../acp-session-manager.js';
 
 vi.mock('../acp-session-manager.js', () => ({
-  AcpSessionManager: vi.fn().mockImplementation(() => ({
+  AcpSessionManager: vi.fn().mockImplementation((_config, _callbacks) => ({
     dispatch: vi.fn(),
+    resume: vi.fn(),
   })),
 }));
 
@@ -35,7 +37,10 @@ const makeBridgeCard = (name: string, wsUrl: string) => ({
 
 describe('CopilotBridgeProvider', () => {
   let callbacks: DispatchCallbacks;
-  beforeEach(() => { callbacks = makeCallbacks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    callbacks = makeCallbacks();
+  });
 
   describe('discover()', () => {
     it('populates agentWsUrls from ACP+WS supportedInterface', async () => {
@@ -87,7 +92,6 @@ describe('CopilotBridgeProvider', () => {
       const provider = new CopilotBridgeProvider('p4', 'http://localhost:7878', 'api-key', callbacks);
       await provider.discover();
 
-      const { AcpSessionManager } = await import('../acp-session-manager.js');
       const dispatchCallbacks = makeCallbacks();
       provider.dispatch('bob', 'hello', 'card-2', 'run-2', dispatchCallbacks);
 
@@ -97,7 +101,12 @@ describe('CopilotBridgeProvider', () => {
           auto_approve: false,
           bearerToken: 'api-key',
         }),
-        dispatchCallbacks,
+        expect.objectContaining({
+          onRunCreated: dispatchCallbacks.onRunCreated,
+          onEvent: dispatchCallbacks.onEvent,
+          onAgentMessage: dispatchCallbacks.onAgentMessage,
+          onPermissionRequest: dispatchCallbacks.onPermissionRequest,
+        }),
       );
 
       const mockInstance = vi.mocked(AcpSessionManager).mock.results.at(-1)?.value as { dispatch: ReturnType<typeof vi.fn> };
@@ -114,13 +123,80 @@ describe('CopilotBridgeProvider', () => {
       const provider = new CopilotBridgeProvider('p5', 'http://localhost:7878', null, callbacks);
       await provider.discover();
 
-      const { AcpSessionManager } = await import('../acp-session-manager.js');
       provider.dispatch('bob', 'hi', 'card-3', 'run-3', makeCallbacks());
 
       expect(AcpSessionManager).toHaveBeenCalledWith(
         expect.objectContaining({ bearerToken: undefined }),
         expect.anything(),
       );
+    });
+
+    it('registers an active manager on dispatch and removes it on completion', async () => {
+      const cards = [makeBridgeCard('bob', 'ws://localhost:3030/bob')];
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ cards }),
+      } as unknown as Response);
+
+      const provider = new CopilotBridgeProvider('p6', 'http://localhost:7878', 'key', callbacks);
+      await provider.discover();
+      provider.dispatch('bob', 'hi', 'card-1', 'run-1', callbacks);
+
+      expect((provider as any).activeManagers.size).toBe(1);
+
+      const wrappedCallbacks = vi.mocked(AcpSessionManager).mock.calls.at(-1)?.[1] as DispatchCallbacks;
+      wrappedCallbacks.onComplete('card-1', 'run-1', 'completed');
+
+      expect((provider as any).activeManagers.size).toBe(0);
+      expect(callbacks.onComplete).toHaveBeenCalledWith('card-1', 'run-1', 'completed', undefined);
+    });
+
+    it('resumeRun forwards the decision to the active manager', async () => {
+      const cards = [makeBridgeCard('bob', 'ws://localhost:3030/bob')];
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ cards }),
+      } as unknown as Response);
+
+      const provider = new CopilotBridgeProvider('p7', 'http://localhost:7878', 'key', callbacks);
+      await provider.discover();
+      provider.dispatch('bob', 'hi', 'card-1', 'run-1', callbacks);
+
+      provider.resumeRun('run-1', 'allow', callbacks);
+
+      const mockInstance = vi.mocked(AcpSessionManager).mock.results.at(-1)?.value as { resume: ReturnType<typeof vi.fn> };
+      expect(mockInstance.resume).toHaveBeenCalledWith('allow');
+    });
+
+    it('resumeRun is a no-op when no active manager exists for the run', () => {
+      const provider = new CopilotBridgeProvider('p8', 'http://localhost:7878', 'key', callbacks);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      expect(() => provider.resumeRun('unknown', 'allow', callbacks)).not.toThrow();
+
+      expect(vi.mocked(AcpSessionManager).mock.results.at(-1)?.value?.resume).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith('CopilotBridgeProvider.resumeRun: no active manager for run unknown');
+      warn.mockRestore();
+    });
+
+    it('removes the active manager when the run is interrupted', async () => {
+      const cards = [makeBridgeCard('bob', 'ws://localhost:3030/bob')];
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ cards }),
+      } as unknown as Response);
+
+      const provider = new CopilotBridgeProvider('p9', 'http://localhost:7878', 'key', callbacks);
+      await provider.discover();
+      provider.dispatch('bob', 'hi', 'card-1', 'run-1', callbacks);
+
+      expect((provider as any).activeManagers.size).toBe(1);
+
+      const wrappedCallbacks = vi.mocked(AcpSessionManager).mock.calls.at(-1)?.[1] as DispatchCallbacks;
+      wrappedCallbacks.onInterrupted('card-1', 'run-1');
+
+      expect((provider as any).activeManagers.size).toBe(0);
+      expect(callbacks.onInterrupted).toHaveBeenCalledWith('card-1', 'run-1');
     });
   });
 });

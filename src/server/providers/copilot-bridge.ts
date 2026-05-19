@@ -12,6 +12,7 @@ export class CopilotBridgeProvider implements AgentProvider {
   // Populated by discover(). Maps agent name -> ACP WebSocket URL.
   // e.g. 'bob' -> 'ws://localhost:3030/bob'
   private agentWsUrls: Map<string, string> = new Map();
+  private activeManagers: Map<string, AcpSessionManager> = new Map();
 
   constructor(
     id: string,
@@ -79,12 +80,36 @@ export class CopilotBridgeProvider implements AgentProvider {
         auto_approve: false,
         bearerToken: this.apiKey || undefined,
       },
-      callbacks,
+      this.wrapCallbacks(kanbanRunId, callbacks),
     );
+    this.activeManagers.set(kanbanRunId, manager);
     manager.dispatch(cardId, agentName, input, kanbanRunId);
   }
 
-  resumeRun(): void {
-    console.warn('CopilotBridgeProvider.resumeRun: use card-routes resume endpoint instead');
+  resumeRun(runId: string, acpDecision: string, _callbacks: DispatchCallbacks): void {
+    const manager = this.activeManagers.get(runId);
+    if (!manager) {
+      console.warn(`CopilotBridgeProvider.resumeRun: no active manager for run ${runId}`);
+      return;
+    }
+    manager.resume(acpDecision);
+  }
+
+  private wrapCallbacks(kanbanRunId: string, inner: DispatchCallbacks): DispatchCallbacks {
+    const release = (): void => { this.activeManagers.delete(kanbanRunId); };
+    return {
+      onRunCreated: inner.onRunCreated,
+      onEvent: inner.onEvent,
+      onAgentMessage: inner.onAgentMessage,
+      onPermissionRequest: inner.onPermissionRequest,
+      onComplete: (cardId, runId, status, error) => {
+        release();
+        inner.onComplete(cardId, runId, status, error);
+      },
+      onInterrupted: (cardId, runId) => {
+        release();
+        inner.onInterrupted(cardId, runId);
+      },
+    };
   }
 }
