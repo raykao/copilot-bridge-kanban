@@ -12,6 +12,7 @@ import type { DispatchCallbacks } from './dispatch-types.js';
 import type { AcpSessionManager } from './acp-session-manager.js';
 import type { ProviderRegistry } from './providers/registry.js';
 import type { AgentProvider } from './providers/types.js';
+import type { SseManager } from './sse.js';
 
 const config: AppConfig = {
   port: 3000,
@@ -114,6 +115,7 @@ async function createTestApp(options: {
   registerBridge?: boolean;
   acpManagers?: Map<string, AcpSessionManager>;
   registry?: ProviderRegistry;
+  sseManager?: SseManager;
 } = {}): Promise<{
   db: Database.Database;
   server: FastifyInstance;
@@ -129,7 +131,7 @@ async function createTestApp(options: {
     server,
     db,
     options.registerBridge ? config : undefined,
-    undefined,
+    options.sseManager,
     options.acpManagers,
     options.registry,
   );
@@ -355,6 +357,76 @@ describe('comment routes', () => {
     expect(run.status).toBe('created');
     expect(run.bridge_run_id).toBeNull();
     expect(run.provider_id).toBe('provider-1');
+  });
+
+  it('emits run.completed SSE when an ACP-path run completes successfully', async () => {
+    const emit = vi.fn();
+    const sseManager = { emit } as unknown as SseManager;
+    const provider: AgentProvider = {
+      id: 'provider-1',
+      type: 'copilot-bridge',
+      baseUrl: 'http://localhost:7878',
+      discover: vi.fn(async () => []),
+      dispatch: vi.fn((_agentName, _input, cardId, kanbanRunId, callbacks) => {
+        callbacks.onComplete(cardId, kanbanRunId, 'completed');
+      }),
+      resumeRun: vi.fn(),
+    };
+    const registry = createMockProviderRegistry(provider);
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true, registry, sseManager });
+    createBridgeProviderRow(db);
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Assigned', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const commentRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/comments`,
+      headers: { cookie: sessionCookie },
+      payload: { content: 'do the thing' },
+    });
+    expect(commentRes.statusCode).toBe(202);
+    const { run_id } = JSON.parse(commentRes.body);
+
+    expect(emit).toHaveBeenCalledWith(card.id, 'run.completed', { run_id });
+  });
+
+  it('emits run.failed SSE when an ACP-path run fails', async () => {
+    const emit = vi.fn();
+    const sseManager = { emit } as unknown as SseManager;
+    const provider: AgentProvider = {
+      id: 'provider-1',
+      type: 'copilot-bridge',
+      baseUrl: 'http://localhost:7878',
+      discover: vi.fn(async () => []),
+      dispatch: vi.fn((_agentName, _input, cardId, kanbanRunId, callbacks) => {
+        callbacks.onComplete(cardId, kanbanRunId, 'failed');
+      }),
+      resumeRun: vi.fn(),
+    };
+    const registry = createMockProviderRegistry(provider);
+    const { db, server, sessionCookie } = await createTestApp({ registerBridge: true, registry, sseManager });
+    createBridgeProviderRow(db);
+
+    const createRes = await server.inject({
+      method: 'POST', url: '/api/cards',
+      headers: { cookie: sessionCookie },
+      payload: { title: 'Assigned', agent: 'bob' },
+    });
+    const { card } = JSON.parse(createRes.body);
+
+    const commentRes = await server.inject({
+      method: 'POST', url: `/api/cards/${card.id}/comments`,
+      headers: { cookie: sessionCookie },
+      payload: { content: 'do the thing' },
+    });
+    expect(commentRes.statusCode).toBe(202);
+    const { run_id } = JSON.parse(commentRes.body);
+
+    expect(emit).toHaveBeenCalledWith(card.id, 'run.failed', { run_id });
   });
 
   it('buildSessionCallbacks persists run status and agent comments', async () => {

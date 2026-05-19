@@ -114,6 +114,8 @@ export function registerCardRoutes(
     onComplete: (cardId, kanbanRunId, status, error) => {
       activeAcpRuns.delete(kanbanRunId);
       updateRun(db, kanbanRunId, { status, finished_at: new Date().toISOString(), ...(error ? { error } : {}) });
+      const eventType = status === 'completed' ? 'run.completed' : status === 'failed' ? 'run.failed' : 'run.cancelled';
+      sseManager?.emit(cardId, eventType, { run_id: kanbanRunId });
     },
     onAgentMessage: (cardId, kanbanRunId, bot, content) => {
       if (!content) return;
